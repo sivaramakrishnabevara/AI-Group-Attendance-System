@@ -3,46 +3,101 @@ import numpy as np
 import os
 import uuid
 import json
+import urllib.request
 from datetime import datetime
-from PIL import Image
 
-try:
-    import face_recognition
-    HAS_DEEP_RECOGNITION = True
-except Exception:
-    HAS_DEEP_RECOGNITION = False
+# ONNX model directory and paths
+MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+YUNET_MODEL_PATH = os.path.join(MODEL_DIR, 'face_detection_yunet_2023mar.onnx')
+SFACE_MODEL_PATH = os.path.join(MODEL_DIR, 'face_recognition_sface_2021dec.onnx')
+
+YUNET_URL = 'https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx'
+SFACE_URL = 'https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx'
+
+def ensure_onnx_models():
+    """
+    Ensures that YuNet and SFace ONNX model files exist in the models/ directory.
+    Downloads them automatically if missing.
+    """
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    if not os.path.exists(YUNET_MODEL_PATH) or os.path.getsize(YUNET_MODEL_PATH) < 10000:
+        print(f"Downloading YuNet ONNX model to {YUNET_MODEL_PATH}...")
+        urllib.request.urlretrieve(YUNET_URL, YUNET_MODEL_PATH)
+    if not os.path.exists(SFACE_MODEL_PATH) or os.path.getsize(SFACE_MODEL_PATH) < 10000:
+        print(f"Downloading SFace ONNX model to {SFACE_MODEL_PATH}...")
+        urllib.request.urlretrieve(SFACE_URL, SFACE_MODEL_PATH)
 
 class FaceEngine:
-    def __init__(self, match_threshold=0.45):
-        # Default match threshold 0.45 for ResNet 128-D (corresponds to max Euclidean distance <= 0.55)
+    def __init__(self, match_threshold=0.40):
+        # Match threshold 0.40 for SFace Cosine Similarity (Range: 0.0 to 1.0)
         self.match_threshold = match_threshold
-        self.active_vector_dim = 128 if HAS_DEEP_RECOGNITION else 256
-        # Load Haar Cascade from OpenCV default data
+        self.active_vector_dim = 128
+
+        # Ensure ONNX models exist
+        ensure_onnx_models()
+
+        # Load SFace Recognizer ONNX model once at app startup
+        self.recognizer = cv2.FaceRecognizerSF.create(SFACE_MODEL_PATH, "")
+
+        # Haar Cascade detector fallback
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_cascade = cv2.CascadeClassifier(cascade_path)
 
-    def detect_faces(self, image_np):
+        # Cache detector instances for image resolutions to prevent re-instantiation overhead
+        self._detector_cache = {}
+
+    def _get_detector(self, width, height):
+        key = (width, height)
+        if key not in self._detector_cache:
+            detector = cv2.FaceDetectorYN.create(
+                YUNET_MODEL_PATH,
+                "",
+                (width, height),
+                score_threshold=0.5,
+                nms_threshold=0.3,
+                top_k=5000
+            )
+            self._detector_cache[key] = detector
+            if len(self._detector_cache) > 20:
+                self._detector_cache.pop(next(iter(self._detector_cache)))
+        return self._detector_cache[key]
+
+    def detect_faces_with_landmarks(self, image_np):
         """
-        Detects faces in an RGB or BGR numpy image array.
-        Returns list of (x, y, w, h) bounding boxes.
+        Detects faces using YuNet ONNX detector.
+        Returns raw YuNet face objects containing bounding box and 5 facial landmarks.
+        Format per face array: [x, y, w, h, x_re, y_re, x_le, y_le, x_nt, y_nt, x_rm, y_rm, x_lm, y_lm, score]
         """
         if image_np is None or image_np.size == 0:
             return []
-        
-        # Use face_recognition HOG detector if available, fallback to Haar Cascade
-        if HAS_DEEP_RECOGNITION:
-            try:
-                rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
-                locs = face_recognition.face_locations(rgb, model='hog')
-                if len(locs) > 0:
-                    # Convert (top, right, bottom, left) -> (x, y, w, h)
-                    return [(left, top, right - left, bottom - top) for (top, right, bottom, left) in locs]
-            except Exception:
-                pass
+        h, w = image_np.shape[:2]
+        try:
+            detector = self._get_detector(w, h)
+            retval, faces = detector.detect(image_np)
+            if retval > 0 and faces is not None and len(faces) > 0:
+                return faces
+        except Exception as e:
+            pass
+        return []
 
-        gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
+    def detect_faces(self, image_np):
+        """
+        Detects faces and returns list of (x, y, w, h) bounding boxes.
+        Uses YuNet detector primarily, falling back to Haar Cascade.
+        """
+        raw_faces = self.detect_faces_with_landmarks(image_np)
+        if len(raw_faces) > 0:
+            boxes = []
+            for face in raw_faces:
+                x, y, w, h = int(face[0]), int(face[1]), int(face[2]), int(face[3])
+                boxes.append((x, y, w, h))
+            return boxes
+
+        # Haar Cascade Fallback
+        if image_np is None or image_np.size == 0:
+            return []
+        gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY) if len(image_np.shape) == 3 else image_np
         gray = cv2.equalizeHist(gray)
-        
         faces = self.face_cascade.detectMultiScale(
             gray,
             scaleFactor=1.1,
@@ -50,126 +105,98 @@ class FaceEngine:
             minSize=(60, 60),
             flags=cv2.CASCADE_SCALE_IMAGE
         )
-        return faces
+        return [(int(x), int(y), int(w), int(h)) for (x, y, w, h) in faces]
 
     def extract_encoding(self, image_np, face_box=None):
         """
-        Extracts 128-d ResNet Deep Learning Face Encoding via face_recognition library,
-        or 256-d normalized LBP vector as fallback.
+        Extracts 128-D SFace Deep Learning Face Embedding vector as a list of 128 floats.
+        Uses landmark-aligned face crops for optimal accuracy.
         """
         if image_np is None or image_np.size == 0:
             return None
 
-        # 1. Try Deep Learning ResNet 128-D vector extraction
-        if HAS_DEEP_RECOGNITION:
-            try:
-                rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
-                if face_box is not None:
-                    x, y, w, h = face_box
-                    top = max(0, int(y))
-                    right = min(image_np.shape[1], int(x + w))
-                    bottom = min(image_np.shape[0], int(y + h))
-                    left = max(0, int(x))
-                    encs = face_recognition.face_encodings(rgb, [(top, right, bottom, left)])
-                else:
-                    encs = face_recognition.face_encodings(rgb)
-                
-                if len(encs) > 0:
-                    return [float(val) for val in encs[0]]
-            except Exception:
-                pass
+        h, w = image_np.shape[:2]
 
-        # 2. Fallback crop preparation for LBP vector
-        if face_box is not None:
-            x, y, w, h = face_box
-            margin_x = int(w * 0.1)
-            margin_y = int(h * 0.1)
-            h_img, w_img = image_np.shape[:2]
-            
-            x1 = max(0, int(x - margin_x))
-            y1 = max(0, int(y - margin_y))
-            x2 = min(w_img, int(x + w + margin_x))
-            y2 = min(h_img, int(y + h + margin_y))
-            
-            face_crop = image_np[y1:y2, x1:x2]
-        else:
-            face_crop = image_np
+        try:
+            # 1. Try raw YuNet detection with facial landmarks
+            raw_faces = self.detect_faces_with_landmarks(image_np)
+            selected_face = None
 
-        if face_crop is None or face_crop.size == 0:
+            if face_box is not None and len(raw_faces) > 0:
+                bx, by, bw, bh = face_box
+                best_overlap = -1
+                for f in raw_faces:
+                    fx, fy, fw, fh = f[0], f[1], f[2], f[3]
+                    dx = min(bx + bw, fx + fw) - max(bx, fx)
+                    dy = min(by + bh, fy + fh) - max(by, fy)
+                    if dx > 0 and dy > 0:
+                        overlap = dx * dy
+                        if overlap > best_overlap:
+                            best_overlap = overlap
+                            selected_face = f
+            elif len(raw_faces) > 0:
+                selected_face = raw_faces[0]
+
+            if selected_face is not None:
+                aligned_face = self.recognizer.alignCrop(image_np, selected_face)
+                feature = self.recognizer.feature(aligned_face)
+                return [float(val) for val in feature.flatten()]
+
+            # 2. If bounding box provided without landmarks (e.g., from Haar Cascade)
+            if face_box is not None:
+                bx, by, bw, bh = face_box
+                pseudo_face = np.array([
+                    bx, by, bw, bh,
+                    bx + bw * 0.3, by + bh * 0.35,
+                    bx + bw * 0.7, by + bh * 0.35,
+                    bx + bw * 0.5, by + bh * 0.55,
+                    bx + bw * 0.35, by + bh * 0.75,
+                    bx + bw * 0.65, by + bh * 0.75,
+                    1.0
+                ], dtype=np.float32)
+                aligned_face = self.recognizer.alignCrop(image_np, pseudo_face)
+                feature = self.recognizer.feature(aligned_face)
+                return [float(val) for val in feature.flatten()]
+
+            # 3. Direct crop on whole image frame
+            pseudo_face = np.array([
+                0, 0, w, h,
+                w * 0.3, h * 0.35,
+                w * 0.7, h * 0.35,
+                w * 0.5, h * 0.55,
+                w * 0.35, h * 0.75,
+                w * 0.65, h * 0.75,
+                1.0
+            ], dtype=np.float32)
+            aligned_face = self.recognizer.alignCrop(image_np, pseudo_face)
+            feature = self.recognizer.feature(aligned_face)
+            return [float(val) for val in feature.flatten()]
+        except Exception as e:
+            print(f"Error extracting SFace encoding: {e}")
             return None
-
-        # 3. Fallback to 256-D Normalized LBP Vector
-        gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY) if len(face_crop.shape) == 3 else face_crop
-        gray = cv2.resize(gray, (128, 128))
-        gray = cv2.equalizeHist(gray)
-
-        c = gray[1:-1, 1:-1]
-        lbp = np.zeros_like(c, dtype=np.uint8)
-        lbp |= ((gray[:-2, :-2] >= c) << 7).astype(np.uint8)
-        lbp |= ((gray[:-2, 1:-1] >= c) << 6).astype(np.uint8)
-        lbp |= ((gray[:-2, 2:]   >= c) << 5).astype(np.uint8)
-        lbp |= ((gray[1:-1, 2:]  >= c) << 4).astype(np.uint8)
-        lbp |= ((gray[2:, 2:]    >= c) << 3).astype(np.uint8)
-        lbp |= ((gray[2:, 1:-1]  >= c) << 2).astype(np.uint8)
-        lbp |= ((gray[2:, :-2]   >= c) << 1).astype(np.uint8)
-        lbp |= ((gray[1:-1, :-2] >= c) << 0).astype(np.uint8)
-
-        cell_h, cell_w = lbp.shape[0] // 4, lbp.shape[1] // 4
-        hists = []
-        for r in range(4):
-            for c_idx in range(4):
-                cell = lbp[r*cell_h:(r+1)*cell_h, c_idx*cell_w:(c_idx+1)*cell_w]
-                hist, _ = np.histogram(cell, bins=16, range=(0, 256))
-                hist = hist.astype(np.float32)
-                s = np.sum(hist)
-                if s > 0:
-                    hist /= s
-                hists.append(hist)
-
-        res = np.concatenate(hists)
-        return [float(val) for val in res]
 
     def compute_similarity(self, encoding1, encoding2):
         """
-        Computes similarity score (0.0 to 1.0) using Euclidean Distance (for ResNet 128D)
-        or Bhattacharyya/Cosine measure (for LBP 256D).
+        Computes Cosine Similarity (0.0 to 1.0) between two 128-D SFace feature vectors.
         """
         if not encoding1 or not encoding2:
             return 0.0
-        
         try:
-            v1 = np.array(encoding1, dtype=np.float32)
-            v2 = np.array(encoding2, dtype=np.float32)
+            v1 = np.array(encoding1, dtype=np.float32).flatten()
+            v2 = np.array(encoding2, dtype=np.float32).flatten()
         except Exception:
             return 0.0
 
-        if v1.size == 0 or v2.size == 0 or len(v1) != len(v2):
+        if v1.size != 128 or v2.size != 128:
             return 0.0
 
-        if len(v1) == 128:
-            # ResNet 128-D Euclidean Distance matching
-            # distance d in [0.0, 1.0+]. Similarity = 1.0 - d.
-            dist = float(np.linalg.norm(v1 - v2))
-            sim = max(0.0, min(1.0, 1.0 - dist))
-            return sim
-        elif len(v1) == 256:
-            # LBP 256-D Bhattacharyya / Cosine Matching
-            v1_sqrt = np.sqrt(np.maximum(v1, 0.0))
-            v2_sqrt = np.sqrt(np.maximum(v2, 0.0))
-            norm1 = np.linalg.norm(v1_sqrt)
-            norm2 = np.linalg.norm(v2_sqrt)
-            if norm1 == 0 or norm2 == 0:
-                return 0.0
-            cosine_sim = float(np.dot(v1_sqrt, v2_sqrt) / (norm1 * norm2))
-            return max(0.0, min(1.0, cosine_sim))
-        else:
-            # Generic Cosine Similarity
-            norm1 = np.linalg.norm(v1)
-            norm2 = np.linalg.norm(v2)
-            if norm1 == 0 or norm2 == 0:
-                return 0.0
-            cosine_sim = float(np.dot(v1, v2) / (norm1 * norm2))
-            return max(0.0, min(1.0, cosine_sim))
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        cosine_sim = float(np.dot(v1, v2) / (norm1 * norm2))
+        return max(0.0, min(1.0, cosine_sim))
 
     def add_anti_spoof_timestamp(self, image_np, client_timestamp=None):
         """
@@ -192,7 +219,7 @@ class FaceEngine:
             (15, h - int(banner_h * 0.3)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (0, 230, 118), # Neon Emerald
+            (0, 230, 118),
             1,
             cv2.LINE_AA
         )
@@ -202,39 +229,47 @@ class FaceEngine:
         """
         Processes a live video frame:
         1. Detects all faces.
-        2. Compares face encodings with registered students (enforcing unique student assignment per frame).
+        2. Compares 128-D SFace encodings against registered class students (enforcing unique assignment).
         3. Returns recognized students.
-        4. Saves undetected/unregistered faces into undetected_folder for teacher manual mapping.
+        4. Saves unrecognized / unknown faces into undetected_folder for teacher manual mapping.
         """
         stamped_img = self.add_anti_spoof_timestamp(image_np)
-        faces = self.detect_faces(image_np)
+        raw_faces = self.detect_faces_with_landmarks(image_np)
         
+        if len(raw_faces) == 0:
+            haar_boxes = self.detect_faces(image_np)
+            faces_to_process = [('box', box) for box in haar_boxes]
+        else:
+            faces_to_process = [('raw', f) for f in raw_faces]
+
         recognized_results = []
         undetected_saved = []
 
         h_img, w_img = image_np.shape[:2]
         assigned_student_ids = set()
 
-        # Dynamic match threshold based on encoding type
-        effective_threshold = self.match_threshold if self.active_vector_dim == 128 else 0.80
+        for face_type, face_data in faces_to_process:
+            if face_type == 'raw':
+                x, y, w, h = int(face_data[0]), int(face_data[1]), int(face_data[2]), int(face_data[3])
+                encoding = self.extract_encoding(image_np, (x, y, w, h))
+            else:
+                x, y, w, h = face_data
+                encoding = self.extract_encoding(image_np, (x, y, w, h))
 
-        for (x, y, w, h) in faces:
-            encoding = self.extract_encoding(image_np, (x, y, w, h))
             if not encoding:
                 continue
-            
+
             best_match_student = None
             highest_sim = 0.0
-            
+
             for student in student_records:
                 if not student.encoding_json:
                     continue
-                # Prevent duplicate assignment of the same student to multiple faces in one picture
                 if student.id in assigned_student_ids:
                     continue
                 try:
                     s_encoding = json.loads(student.encoding_json)
-                    if not isinstance(s_encoding, list):
+                    if not isinstance(s_encoding, list) or len(s_encoding) != 128:
                         continue
                     sim = self.compute_similarity(encoding, s_encoding)
                     if sim > highest_sim:
@@ -242,9 +277,8 @@ class FaceEngine:
                         best_match_student = student
                 except Exception:
                     continue
-            
-            # Check match against effective threshold
-            if best_match_student and highest_sim >= effective_threshold:
+
+            if best_match_student and highest_sim >= self.match_threshold:
                 assigned_student_ids.add(best_match_student.id)
                 recognized_results.append({
                     'student_id': best_match_student.id,
@@ -255,12 +289,10 @@ class FaceEngine:
                     'confidence': round(highest_sim * 100, 1),
                     'bbox': [int(x), int(y), int(w), int(h)]
                 })
-                # Draw Green box for recognized face
                 cv2.rectangle(stamped_img, (x, y), (x + w, y + h), (0, 230, 118), 2)
                 cv2.putText(stamped_img, f"{best_match_student.name} ({round(highest_sim*100)}%)", 
                             (x, max(y - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 118), 2)
             else:
-                # Undetected/Unrecognized Person Face!
                 margin = int(w * 0.25)
                 x1 = max(0, x - margin)
                 y1 = max(0, y - margin)
@@ -268,7 +300,6 @@ class FaceEngine:
                 y2 = min(h_img, y + h + margin)
                 
                 crop = stamped_img[y1:y2, x1:x2]
-                
                 if crop.size > 0:
                     filename = f"session_{session_id}_{uuid.uuid4().hex[:8]}.jpg"
                     filepath = os.path.join(undetected_folder, filename)
@@ -280,12 +311,10 @@ class FaceEngine:
                         'bbox': [int(x), int(y), int(w), int(h)]
                     })
                     
-                # Draw Red box for unrecognized face
                 cv2.rectangle(stamped_img, (x, y), (x + w, y + h), (255, 61, 0), 2)
                 cv2.putText(stamped_img, "UNKNOWN / UNREGISTERED", 
                             (x, max(y - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 61, 0), 2)
 
         return stamped_img, recognized_results, undetected_saved
 
-face_engine = FaceEngine(match_threshold=0.45)
-
+face_engine = FaceEngine(match_threshold=0.40)
