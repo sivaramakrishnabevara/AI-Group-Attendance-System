@@ -259,17 +259,16 @@ def add_student(current_user):
         img_np = base64_to_cv2(face_image_b64)
         if img_np is not None:
             faces = face_engine.detect_faces(img_np)
-            if len(faces) > 0:
-                x, y, w, h = faces[0]
-                encoding = face_engine.extract_encoding(img_np, (x, y, w, h))
-                if encoding:
-                    encoding_json = json.dumps(encoding)
+            f_box = faces[0] if len(faces) > 0 else None
+            encoding = face_engine.extract_encoding(img_np, f_box)
+            if encoding:
+                encoding_json = json.dumps(encoding)
 
-                # Save face image crop in dataset/students/
-                filename = f"student_{student_code}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-                save_path = os.path.join(Config.STUDENT_DATASET_DIR, filename)
-                cv2.imwrite(save_path, img_np)
-                face_rel_path = f"dataset/students/{filename}"
+            # Save face image crop in dataset/students/
+            filename = f"student_{student_code}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
+            save_path = os.path.join(Config.STUDENT_DATASET_DIR, filename)
+            cv2.imwrite(save_path, img_np)
+            face_rel_path = f"dataset/students/{filename}"
 
     student = Student(
         student_code=student_code,
@@ -375,12 +374,11 @@ def update_student_face(current_user, student_id):
         return jsonify({'success': False, 'message': 'Invalid image format'}), 400
 
     faces = face_engine.detect_faces(img_np)
+    f_box = faces[0] if len(faces) > 0 else None
     encoding_json = None
-    if len(faces) > 0:
-        x, y, w, h = faces[0]
-        encoding = face_engine.extract_encoding(img_np, (x, y, w, h))
-        if encoding:
-            encoding_json = json.dumps(encoding)
+    encoding = face_engine.extract_encoding(img_np, f_box)
+    if encoding:
+        encoding_json = json.dumps(encoding)
 
     # Remove old face image if exists
     if student.face_image_path:
@@ -486,7 +484,7 @@ def process_webcam_frame(current_user, session_id):
                 if st.encoding_json:
                     try:
                         enc = json.loads(st.encoding_json)
-                        if isinstance(enc, list) and len(enc) in (128, 256):
+                        if isinstance(enc, list) and len(enc) == face_engine.active_vector_dim:
                             needs_update = False
                     except Exception:
                         pass

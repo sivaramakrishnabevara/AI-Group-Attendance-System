@@ -13,8 +13,10 @@ except Exception:
     HAS_DEEP_RECOGNITION = False
 
 class FaceEngine:
-    def __init__(self, match_threshold=0.60):
+    def __init__(self, match_threshold=0.45):
+        # Default match threshold 0.45 for ResNet 128-D (corresponds to max Euclidean distance <= 0.55)
         self.match_threshold = match_threshold
+        self.active_vector_dim = 128 if HAS_DEEP_RECOGNITION else 256
         # Load Haar Cascade from OpenCV default data
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_cascade = cv2.CascadeClassifier(cascade_path)
@@ -27,7 +29,7 @@ class FaceEngine:
         if image_np is None or image_np.size == 0:
             return []
         
-        # Use face_recognition HOG/CNN detector if available, fallback to Haar Cascade
+        # Use face_recognition HOG detector if available, fallback to Haar Cascade
         if HAS_DEEP_RECOGNITION:
             try:
                 rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
@@ -53,50 +55,50 @@ class FaceEngine:
     def extract_encoding(self, image_np, face_box=None):
         """
         Extracts 128-d ResNet Deep Learning Face Encoding via face_recognition library,
-        or 256-d LBP Chi-Square vector as fallback.
+        or 256-d normalized LBP vector as fallback.
         """
+        if image_np is None or image_np.size == 0:
+            return None
+
+        # 1. Try Deep Learning ResNet 128-D vector extraction
+        if HAS_DEEP_RECOGNITION:
+            try:
+                rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+                if face_box is not None:
+                    x, y, w, h = face_box
+                    top = max(0, int(y))
+                    right = min(image_np.shape[1], int(x + w))
+                    bottom = min(image_np.shape[0], int(y + h))
+                    left = max(0, int(x))
+                    encs = face_recognition.face_encodings(rgb, [(top, right, bottom, left)])
+                else:
+                    encs = face_recognition.face_encodings(rgb)
+                
+                if len(encs) > 0:
+                    return [float(val) for val in encs[0]]
+            except Exception:
+                pass
+
+        # 2. Fallback crop preparation for LBP vector
         if face_box is not None:
             x, y, w, h = face_box
-            top = max(0, int(y))
-            right = min(image_np.shape[1], int(x + w))
-            bottom = min(image_np.shape[0], int(y + h))
-            left = max(0, int(x))
-
-            # 1. Try Deep Learning ResNet 128-D vector extraction on full image using location box
-            if HAS_DEEP_RECOGNITION:
-                try:
-                    rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
-                    encs = face_recognition.face_encodings(rgb, [(top, right, bottom, left)])
-                    if len(encs) > 0:
-                        return encs[0].tolist()
-                except Exception:
-                    pass
-
             margin_x = int(w * 0.1)
             margin_y = int(h * 0.1)
             h_img, w_img = image_np.shape[:2]
             
-            x1 = max(0, x - margin_x)
-            y1 = max(0, y - margin_y)
-            x2 = min(w_img, x + w + margin_x)
-            y2 = min(h_img, y + h + margin_y)
+            x1 = max(0, int(x - margin_x))
+            y1 = max(0, int(y - margin_y))
+            x2 = min(w_img, int(x + w + margin_x))
+            y2 = min(h_img, int(y + h + margin_y))
             
             face_crop = image_np[y1:y2, x1:x2]
         else:
             face_crop = image_np
-            if HAS_DEEP_RECOGNITION:
-                try:
-                    rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
-                    encs = face_recognition.face_encodings(rgb)
-                    if len(encs) > 0:
-                        return encs[0].tolist()
-                except Exception:
-                    pass
 
-        if face_crop.size == 0:
+        if face_crop is None or face_crop.size == 0:
             return None
 
-        # 2. Fallback to LBP Chi-Square Vector
+        # 3. Fallback to 256-D Normalized LBP Vector
         gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY) if len(face_crop.shape) == 3 else face_crop
         gray = cv2.resize(gray, (128, 128))
         gray = cv2.equalizeHist(gray)
@@ -124,33 +126,50 @@ class FaceEngine:
                     hist /= s
                 hists.append(hist)
 
-        return np.concatenate(hists).tolist()
+        res = np.concatenate(hists)
+        return [float(val) for val in res]
 
     def compute_similarity(self, encoding1, encoding2):
         """
         Computes similarity score (0.0 to 1.0) using Euclidean Distance (for ResNet 128D)
-        or Chi-Square Distance (for LBP 256D).
+        or Bhattacharyya/Cosine measure (for LBP 256D).
         """
         if not encoding1 or not encoding2:
             return 0.0
         
-        v1 = np.array(encoding1, dtype=np.float32)
-        v2 = np.array(encoding2, dtype=np.float32)
+        try:
+            v1 = np.array(encoding1, dtype=np.float32)
+            v2 = np.array(encoding2, dtype=np.float32)
+        except Exception:
+            return 0.0
 
-        if len(v1) != len(v2):
+        if v1.size == 0 or v2.size == 0 or len(v1) != len(v2):
             return 0.0
 
         if len(v1) == 128:
             # ResNet 128-D Euclidean Distance matching
+            # distance d in [0.0, 1.0+]. Similarity = 1.0 - d.
             dist = float(np.linalg.norm(v1 - v2))
-            sim = max(0.0, min(1.0, 1.0 - (dist * 0.85)))
+            sim = max(0.0, min(1.0, 1.0 - dist))
             return sim
+        elif len(v1) == 256:
+            # LBP 256-D Bhattacharyya / Cosine Matching
+            v1_sqrt = np.sqrt(np.maximum(v1, 0.0))
+            v2_sqrt = np.sqrt(np.maximum(v2, 0.0))
+            norm1 = np.linalg.norm(v1_sqrt)
+            norm2 = np.linalg.norm(v2_sqrt)
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            cosine_sim = float(np.dot(v1_sqrt, v2_sqrt) / (norm1 * norm2))
+            return max(0.0, min(1.0, cosine_sim))
         else:
-            # LBP Chi-Square Distance matching
-            eps = 1e-10
-            chi2 = 0.5 * np.sum(((v1 - v2) ** 2) / (v1 + v2 + eps))
-            sim = float(max(0.0, min(1.0, 1.0 - (35.0 * chi2))))
-            return sim
+            # Generic Cosine Similarity
+            norm1 = np.linalg.norm(v1)
+            norm2 = np.linalg.norm(v2)
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            cosine_sim = float(np.dot(v1, v2) / (norm1 * norm2))
+            return max(0.0, min(1.0, cosine_sim))
 
     def add_anti_spoof_timestamp(self, image_np, client_timestamp=None):
         """
@@ -196,8 +215,13 @@ class FaceEngine:
         h_img, w_img = image_np.shape[:2]
         assigned_student_ids = set()
 
+        # Dynamic match threshold based on encoding type
+        effective_threshold = self.match_threshold if self.active_vector_dim == 128 else 0.80
+
         for (x, y, w, h) in faces:
             encoding = self.extract_encoding(image_np, (x, y, w, h))
+            if not encoding:
+                continue
             
             best_match_student = None
             highest_sim = 0.0
@@ -210,15 +234,17 @@ class FaceEngine:
                     continue
                 try:
                     s_encoding = json.loads(student.encoding_json)
+                    if not isinstance(s_encoding, list):
+                        continue
                     sim = self.compute_similarity(encoding, s_encoding)
                     if sim > highest_sim:
                         highest_sim = sim
                         best_match_student = student
-                except Exception as e:
+                except Exception:
                     continue
             
-            # Check match against strict threshold
-            if best_match_student and highest_sim >= self.match_threshold:
+            # Check match against effective threshold
+            if best_match_student and highest_sim >= effective_threshold:
                 assigned_student_ids.add(best_match_student.id)
                 recognized_results.append({
                     'student_id': best_match_student.id,
@@ -261,4 +287,5 @@ class FaceEngine:
 
         return stamped_img, recognized_results, undetected_saved
 
-face_engine = FaceEngine(match_threshold=0.60)
+face_engine = FaceEngine(match_threshold=0.45)
+
