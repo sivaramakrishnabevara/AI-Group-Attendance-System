@@ -262,7 +262,10 @@ def add_student(current_user):
             f_box = faces[0] if len(faces) > 0 else None
             encoding = face_engine.extract_encoding(img_np, f_box)
             if encoding:
-                encoding_json = json.dumps(encoding)
+                encoding_json = json.dumps({
+                    'version': face_engine.MODEL_VERSION,
+                    'vector': encoding
+                })
 
             # Save face image crop in dataset/students/
             filename = f"student_{student_code}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
@@ -378,7 +381,10 @@ def update_student_face(current_user, student_id):
     encoding_json = None
     encoding = face_engine.extract_encoding(img_np, f_box)
     if encoding:
-        encoding_json = json.dumps(encoding)
+        encoding_json = json.dumps({
+            'version': face_engine.MODEL_VERSION,
+            'vector': encoding
+        })
 
     # Remove old face image if exists
     if student.face_image_path:
@@ -480,14 +486,20 @@ def process_webcam_frame(current_user, session_id):
         if st.face_image_path:
             full_p = os.path.join(Config.DATA_DIR, st.face_image_path)
             if os.path.exists(full_p):
-                needs_update = True
-                if st.encoding_json:
+                needs_update = False
+                if not st.encoding_json:
+                    needs_update = True
+                else:
                     try:
                         enc = json.loads(st.encoding_json)
-                        if isinstance(enc, list) and len(enc) == face_engine.active_vector_dim:
-                            needs_update = False
+                        if isinstance(enc, dict):
+                            if enc.get('version') != face_engine.MODEL_VERSION:
+                                needs_update = True
+                        else:
+                            needs_update = True
                     except Exception:
-                        pass
+                        needs_update = True
+
                 if needs_update:
                     st_img = cv2.imread(full_p)
                     if st_img is not None:
@@ -495,7 +507,10 @@ def process_webcam_frame(current_user, session_id):
                         f_box = faces[0] if len(faces) > 0 else None
                         enc_new = face_engine.extract_encoding(st_img, f_box)
                         if enc_new:
-                            st.encoding_json = json.dumps(enc_new)
+                            st.encoding_json = json.dumps({
+                                'version': face_engine.MODEL_VERSION,
+                                'vector': enc_new
+                            })
                             db.session.commit()
     
     stamped_img, recognized, undetected = face_engine.process_live_frame(

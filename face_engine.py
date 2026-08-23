@@ -14,6 +14,8 @@ SFACE_MODEL_PATH = os.path.join(MODEL_DIR, 'face_recognition_sface_2021dec.onnx'
 YUNET_URL = 'https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx'
 SFACE_URL = 'https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx'
 
+MODEL_VERSION = "SFACE_ONNX_V1"
+
 def ensure_onnx_models():
     """
     Ensures that YuNet and SFace ONNX model files exist in the models/ directory.
@@ -32,6 +34,7 @@ class FaceEngine:
         # Match threshold 0.40 for SFace Cosine Similarity (Range: 0.0 to 1.0)
         self.match_threshold = match_threshold
         self.active_vector_dim = 128
+        self.MODEL_VERSION = MODEL_VERSION
 
         # Ensure ONNX models exist
         ensure_onnx_models()
@@ -61,6 +64,23 @@ class FaceEngine:
             if len(self._detector_cache) > 20:
                 self._detector_cache.pop(next(iter(self._detector_cache)))
         return self._detector_cache[key]
+
+    def _parse_vector(self, encoding):
+        """
+        Safely extracts float vector list from raw list, JSON string, or dict structure.
+        """
+        if not encoding:
+            return None
+        if isinstance(encoding, str):
+            try:
+                encoding = json.loads(encoding)
+            except Exception:
+                return None
+        if isinstance(encoding, dict):
+            return encoding.get('vector', [])
+        if isinstance(encoding, list):
+            return encoding
+        return None
 
     def detect_faces_with_landmarks(self, image_np):
         """
@@ -179,11 +199,13 @@ class FaceEngine:
         """
         Computes Cosine Similarity (0.0 to 1.0) between two 128-D SFace feature vectors.
         """
-        if not encoding1 or not encoding2:
+        v1_list = self._parse_vector(encoding1)
+        v2_list = self._parse_vector(encoding2)
+        if not v1_list or not v2_list:
             return 0.0
         try:
-            v1 = np.array(encoding1, dtype=np.float32).flatten()
-            v2 = np.array(encoding2, dtype=np.float32).flatten()
+            v1 = np.array(v1_list, dtype=np.float32).flatten()
+            v2 = np.array(v2_list, dtype=np.float32).flatten()
         except Exception:
             return 0.0
 
@@ -268,10 +290,10 @@ class FaceEngine:
                 if student.id in assigned_student_ids:
                     continue
                 try:
-                    s_encoding = json.loads(student.encoding_json)
-                    if not isinstance(s_encoding, list) or len(s_encoding) != 128:
+                    s_vector = self._parse_vector(student.encoding_json)
+                    if not s_vector or len(s_vector) != 128:
                         continue
-                    sim = self.compute_similarity(encoding, s_encoding)
+                    sim = self.compute_similarity(encoding, s_vector)
                     if sim > highest_sim:
                         highest_sim = sim
                         best_match_student = student

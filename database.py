@@ -78,4 +78,50 @@ def init_db(app):
             db.session.add_all([s1, s2, s3])
 
         db.session.commit()
+
+        # Migrate legacy student face encodings to SFACE_ONNX_V1 format
+        try:
+            from face_engine import face_engine, MODEL_VERSION
+            import json
+            import cv2
+
+            all_students = Student.query.all()
+            migrated_count = 0
+            for st in all_students:
+                needs_migration = False
+                if not st.encoding_json:
+                    needs_migration = True
+                else:
+                    try:
+                        enc_data = json.loads(st.encoding_json)
+                        if isinstance(enc_data, dict):
+                            if enc_data.get('version') != MODEL_VERSION:
+                                needs_migration = True
+                        else:
+                            needs_migration = True
+                    except Exception:
+                        needs_migration = True
+
+                if needs_migration and st.face_image_path:
+                    full_p = os.path.join(Config.DATA_DIR, st.face_image_path)
+                    if os.path.exists(full_p):
+                        st_img = cv2.imread(full_p)
+                        if st_img is not None:
+                            faces = face_engine.detect_faces(st_img)
+                            f_box = faces[0] if len(faces) > 0 else None
+                            enc_vec = face_engine.extract_encoding(st_img, f_box)
+                            if enc_vec:
+                                st.encoding_json = json.dumps({
+                                    'version': MODEL_VERSION,
+                                    'vector': enc_vec
+                                })
+                                migrated_count += 1
+
+            if migrated_count > 0:
+                db.session.commit()
+                print(f"Migrated {migrated_count} student face encodings to {MODEL_VERSION} format.")
+        except Exception as e:
+            print(f"Encoding migration notice: {e}")
+
         print("Database initialized and default seed data loaded successfully.")
+
