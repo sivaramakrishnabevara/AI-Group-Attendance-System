@@ -794,12 +794,15 @@ const admin = {
     },
 
     async finalizeSessionByAdmin(sessionId) {
-        if (!confirm("Finalize this session and dispatch automated parent absence SMS notifications?")) return;
+        if (!confirm("Are you sure you want to finalize this attendance session?\n\nThis will calculate final Present and Absent students, set session status to FINALIZED, and automatically send Gmail parent absence emails.")) return;
 
         try {
             const res = await fetch(getApiUrl(`/api/sessions/${sessionId}/finalize`), {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${auth.token}` }
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`
+                }
             });
 
             const data = await res.json();
@@ -807,6 +810,7 @@ const admin = {
             this.loadPendingAttendance();
             this.loadAdminReports();
         } catch (err) {
+            console.error("Error finalizing session:", err);
             alert("Error finalizing session.");
         }
     },
@@ -828,30 +832,48 @@ const admin = {
 
     renderAdminReportsTable(sessions) {
         const tbody = document.getElementById('adminReportsTableBody');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         if (!sessions || sessions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No attendance records found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-muted);">No attendance records found.</td></tr>';
             return;
         }
 
         sessions.forEach(s => {
             const tr = document.createElement('tr');
-            const isFinalized = s.status === 'FINALIZED' || s.status === 'COMPLETED';
+            const isFinalized = s.status === 'FINALIZED';
+            const isSubmitted = s.status === 'SUBMITTED_FOR_APPROVAL';
+
+            let statusBadge = '';
+            if (isFinalized) {
+                statusBadge = '<span class="badge-status badge-present">FINALIZED</span>';
+            } else if (isSubmitted) {
+                statusBadge = '<span class="badge-status badge-pending" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">PENDING APPROVAL</span>';
+            } else {
+                statusBadge = `<span class="badge-status badge-pending">${s.status}</span>`;
+            }
 
             tr.innerHTML = `
-                <td><strong>${s.session_title}</strong></td>
+                <td><strong>#S-${String(s.id).padStart(3, '0')}</strong><br><span style="font-size:0.85rem; color:var(--neon-cyan);">${s.session_title}</span></td>
                 <td>${s.class_name}</td>
                 <td>Prof. ${s.created_by_teacher_name}</td>
                 <td>${s.created_at}</td>
-                <td><strong>${s.present_count}</strong> / ${s.total_students}</td>
+                <td>
+                    <span style="color:var(--neon-emerald); font-weight:bold;">${s.present_count} Present</span> / 
+                    <span style="color:#ef4444; font-weight:bold;">${s.absent_count} Absent</span>
+                </td>
+                <td>${statusBadge}</td>
                 <td style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
                     ${!isFinalized ? `
-                        <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm">
-                            <i class="fa-solid fa-circle-check"></i> Finalize Attendance
+                        <button onclick="admin.viewSessionClaims(${s.id})" class="btn btn-purple btn-sm">
+                            <i class="fa-solid fa-clipboard-check"></i> REVIEW ATTENDANCE
+                        </button>
+                        <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm btn-3d">
+                            <i class="fa-solid fa-circle-check"></i> FINALIZE ATTENDANCE
                         </button>
                     ` : `
-                        <span class="badge-status badge-present">✓ FINALIZED</span>
+                        <span class="badge-status badge-present" style="margin-right: 0.5rem;">✓ FINALIZED</span>
                     `}
                     <a href="/api/export/excel/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" onclick="teacher.downloadReport(event, ${s.id}, 'excel')">
                         <i class="fa-solid fa-file-excel"></i> Excel

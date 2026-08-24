@@ -68,7 +68,9 @@ class AttendanceSession(db.Model):
     class_name = db.Column(db.String(50), nullable=False)
     created_by_teacher_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_by_teacher_name = db.Column(db.String(120), nullable=False)
-    status = db.Column(db.String(20), default='IN_PROGRESS') # 'IN_PROGRESS', 'COMPLETED'
+    finalized_by_admin_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    finalized_by_admin_name = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(30), default='IN_PROGRESS') # 'IN_PROGRESS', 'SUBMITTED_FOR_APPROVAL', 'FINALIZED'
     created_at = db.Column(db.DateTime, default=datetime.now)
     completed_at = db.Column(db.DateTime, nullable=True)
 
@@ -76,19 +78,27 @@ class AttendanceSession(db.Model):
     undetected = db.relationship('UndetectedFace', backref='session', lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
+        present_recs = [r for r in self.records if r.status == 'PRESENT' and r.approval_status == 'APPROVED']
+        absent_recs = [r for r in self.records if r.status == 'ABSENT']
+        pending_recs = [r for r in self.records if r.approval_status == 'PENDING_ADMIN']
+        unknown_pending = [u for u in self.undetected if u.status == 'PENDING_ADMIN']
+
         return {
             'id': self.id,
             'session_title': self.session_title,
             'class_name': self.class_name,
             'created_by_teacher_id': self.created_by_teacher_id,
             'created_by_teacher_name': self.created_by_teacher_name,
+            'finalized_by_admin_id': self.finalized_by_admin_id,
+            'finalized_by_admin_name': self.finalized_by_admin_name or '',
             'status': self.status,
             'created_at': self.created_at.strftime('%Y-%m-%d %I:%M:%S %p') if self.created_at else '',
             'completed_at': self.completed_at.strftime('%Y-%m-%d %I:%M:%S %p') if self.completed_at else None,
             'total_students': len(self.records),
-            'present_count': len([r for r in self.records if r.status == 'PRESENT' and r.approval_status == 'APPROVED']),
-            'absent_count': len([r for r in self.records if r.status == 'ABSENT']),
-            'pending_approval_count': len([r for r in self.records if r.approval_status == 'PENDING_ADMIN'])
+            'present_count': len(present_recs),
+            'absent_count': len(absent_recs),
+            'pending_approval_count': len(pending_recs) + len(unknown_pending),
+            'unknown_faces_count': len(self.undetected)
         }
 
 class AttendanceRecord(db.Model):

@@ -725,28 +725,35 @@ def submit_session_approval(current_user, session_id):
 @token_required
 def finalize_session_by_admin(current_user, session_id):
     """
-    Req 14, 15, 16: Admin finalizes attendance.
-    1. Computes absent students (all registered class students not marked PRESENT).
-    2. Updates status to FINALIZED.
-    3. Sends ONE parent absence SMS per absent student.
+    Admin finalizes attendance session permanently.
+    1. Enforces ADMIN authorization.
+    2. Approves valid claims, calculates ABSENT for remaining un-marked class students.
+    3. Sets status to FINALIZED with timestamp and admin attribution.
+    4. Dispatches Gmail parent absence emails ONLY for absent students.
     """
     session = AttendanceSession.query.get(session_id)
     if not session:
         return jsonify({'success': False, 'message': 'Session not found'}), 404
 
-    # Enforce Admin privilege for permanent finalization if required
-    if current_user.role != 'ADMIN' and session.status == 'SUBMITTED_FOR_APPROVAL':
-        return jsonify({'success': False, 'message': 'Admin approval is required to finalize this session'}), 403
+    # Enforce strictly Admin role for finalization
+    if current_user.role != 'ADMIN':
+        return jsonify({'success': False, 'message': 'Authorization failed: Only Admin can finalize attendance sessions'}), 403
 
-    # Calculate absent students for class
-    class_students = Student.query.filter_by(class_name=session.class_name).all()
+    if session.status == 'FINALIZED':
+        return jsonify({
+            'success': True,
+            'message': 'Attendance session is already finalized.',
+            'session': session.to_dict()
+        })
+
+    # Calculate present student IDs for this class session
     present_student_ids = set()
-
     for rec in session.records:
         if rec.status == 'PRESENT' and rec.approval_status == 'APPROVED':
             present_student_ids.add(rec.student_id)
 
-    # Mark all missing registered students as ABSENT
+    # Mark all missing registered students in class as ABSENT
+    class_students = Student.query.filter_by(class_name=session.class_name).all()
     for st in class_students:
         rec = AttendanceRecord.query.filter_by(session_id=session.id, student_id=st.id).first()
         if not rec:
@@ -764,9 +771,11 @@ def finalize_session_by_admin(current_user, session_id):
 
     session.status = 'FINALIZED'
     session.completed_at = datetime.now()
+    session.finalized_by_admin_id = current_user.id
+    session.finalized_by_admin_name = current_user.full_name
     db.session.commit()
 
-    # Dispatch parent absence SMS ONLY after Admin finalization
+    # Dispatch parent absence emails ONLY AFTER successful DB finalization
     absent_records = AttendanceRecord.query.filter_by(
         session_id=session.id,
         status='ABSENT',

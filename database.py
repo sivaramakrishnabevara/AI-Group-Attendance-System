@@ -43,6 +43,12 @@ def init_db(app):
                     if 'sms_sent_at' not in rec_cols:
                         conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN sms_sent_at DATETIME;")
                     
+                    sess_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(attendance_sessions)").fetchall()]
+                    if 'finalized_by_admin_id' not in sess_cols:
+                        conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN finalized_by_admin_id INTEGER;")
+                    if 'finalized_by_admin_name' not in sess_cols:
+                        conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN finalized_by_admin_name VARCHAR(120);")
+
                     und_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(undetected_faces)").fetchall()]
                     if 'image_b64' not in und_cols:
                         conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN image_b64 TEXT;")
@@ -51,6 +57,8 @@ def init_db(app):
                     conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS snapshot_b64 TEXT;")
                     conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent BOOLEAN DEFAULT FALSE;")
                     conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMP;")
+                    conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_id INTEGER;")
+                    conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_name VARCHAR(120);")
                     conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN IF NOT EXISTS image_b64 TEXT;")
         except Exception as e:
             print(f"Column migration notice: {e}")
