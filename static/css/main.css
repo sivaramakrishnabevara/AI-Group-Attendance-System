@@ -61,50 +61,8 @@ body {
   min-height: 100vh;
   position: relative;
   background-image: 
-    radial-gradient(circle at 15% 15%, rgba(192, 132, 252, 0.18) 0%, transparent 40%),
-    radial-gradient(circle at 85% 85%, rgba(0, 242, 254, 0.18) 0%, transparent 40%),
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-}
-
-/* Ambient Floating Glow Spheres */
-body::before, body::after {
-  content: '';
-  position: fixed;
-  border-radius: 50%;
-  filter: blur(140px);
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.45;
-}
-
-body::before {
-  width: 550px;
-  height: 550px;
-  background: radial-gradient(circle, var(--neon-purple), transparent 70%);
-  top: -180px;
-  left: -180px;
-  animation: floatBlob1 20s ease-in-out infinite alternate;
-}
-
-body::after {
-  width: 650px;
-  height: 650px;
-  background: radial-gradient(circle, var(--neon-cyan), transparent 70%);
-  bottom: -220px;
-  right: -220px;
-  animation: floatBlob2 25s ease-in-out infinite alternate;
-}
-
-@keyframes floatBlob1 {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(120px, 90px) scale(1.2); }
-}
-
-@keyframes floatBlob2 {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(-140px, -100px) scale(1.25); }
+    radial-gradient(circle at 15% 15%, rgba(30, 41, 59, 0.5) 0%, transparent 50%),
+    radial-gradient(circle at 85% 85%, rgba(15, 23, 42, 0.6) 0%, transparent 50%);
 }
 
 #app {

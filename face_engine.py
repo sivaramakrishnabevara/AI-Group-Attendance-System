@@ -77,10 +77,42 @@ class FaceEngine:
             except Exception:
                 return None
         if isinstance(encoding, dict):
-            return encoding.get('vector', [])
+            if 'vector' in encoding and isinstance(encoding['vector'], list):
+                return encoding['vector']
+            if 'vectors' in encoding and isinstance(encoding['vectors'], list) and len(encoding['vectors']) > 0:
+                return encoding['vectors'][0]
+            return []
         if isinstance(encoding, list):
+            if len(encoding) > 0 and isinstance(encoding[0], list):
+                return encoding[0]
             return encoding
         return None
+
+    def _parse_vectors(self, encoding):
+        """
+        Safely extracts list of 128-D float vector arrays from raw list, JSON string, or dict structure.
+        Supports both single-vector legacy format and multi-vector (5-photo) format.
+        Returns: list of 128-D vector lists.
+        """
+        if not encoding:
+            return []
+        if isinstance(encoding, str):
+            try:
+                encoding = json.loads(encoding)
+            except Exception:
+                return []
+        if isinstance(encoding, dict):
+            if 'vectors' in encoding and isinstance(encoding['vectors'], list):
+                return [v for v in encoding['vectors'] if isinstance(v, list) and len(v) == 128]
+            if 'vector' in encoding and isinstance(encoding['vector'], list) and len(encoding['vector']) == 128:
+                return [encoding['vector']]
+            return []
+        if isinstance(encoding, list):
+            if len(encoding) > 0 and isinstance(encoding[0], list):
+                return [v for v in encoding if isinstance(v, list) and len(v) == 128]
+            elif len(encoding) == 128:
+                return [encoding]
+        return []
 
     def detect_faces_with_landmarks(self, image_np):
         """
@@ -251,9 +283,9 @@ class FaceEngine:
         """
         Processes a live video frame:
         1. Detects all faces.
-        2. Compares 128-D SFace encodings against registered class students (enforcing unique assignment).
+        2. Compares 128-D SFace encodings against ALL 5 registered embeddings of each student.
         3. Returns recognized students.
-        4. Saves unrecognized / unknown faces into undetected_folder for teacher manual mapping.
+        4. Saves unrecognized / unknown faces into dataset/unknown_faces/<SESSION_ID>/ for teacher manual mapping.
         """
         stamped_img = self.add_anti_spoof_timestamp(image_np)
         raw_faces = self.detect_faces_with_landmarks(image_np)
@@ -269,6 +301,11 @@ class FaceEngine:
 
         h_img, w_img = image_np.shape[:2]
         assigned_student_ids = set()
+
+        session_folder_name = f"session_{session_id}"
+        session_unknown_dir = os.path.join(undetected_folder, session_folder_name)
+        os.makedirs(session_unknown_dir, exist_ok=True)
+        unknown_counter = len(os.listdir(session_unknown_dir)) + 1
 
         for face_type, face_data in faces_to_process:
             if face_type == 'raw':
@@ -290,13 +327,14 @@ class FaceEngine:
                 if student.id in assigned_student_ids:
                     continue
                 try:
-                    s_vector = self._parse_vector(student.encoding_json)
-                    if not s_vector or len(s_vector) != 128:
+                    s_vectors = self._parse_vectors(student.encoding_json)
+                    if not s_vectors:
                         continue
-                    sim = self.compute_similarity(encoding, s_vector)
-                    if sim > highest_sim:
-                        highest_sim = sim
-                        best_match_student = student
+                    for vec in s_vectors:
+                        sim = self.compute_similarity(encoding, vec)
+                        if sim > highest_sim:
+                            highest_sim = sim
+                            best_match_student = student
                 except Exception:
                     continue
 
@@ -315,27 +353,34 @@ class FaceEngine:
                 cv2.putText(stamped_img, f"{best_match_student.name} ({round(highest_sim*100)}%)", 
                             (x, max(y - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 118), 2)
             else:
-                margin = int(w * 0.25)
-                x1 = max(0, x - margin)
-                y1 = max(0, y - margin)
-                x2 = min(w_img, x + w + margin)
-                y2 = min(h_img, y + h + margin)
+                # Unrecognized / Unknown face handling: Save crop under dataset/unknown_faces/<SESSION_ID>/
+                pad_x, pad_y = int(w * 0.2), int(h * 0.2)
+                crop_x1 = max(0, x - pad_x)
+                crop_y1 = max(0, y - pad_y)
+                crop_x2 = min(w_img, x + w + pad_x)
+                crop_y2 = min(h_img, y + h + pad_y)
                 
-                crop = stamped_img[y1:y2, x1:x2]
-                if crop.size > 0:
-                    filename = f"session_{session_id}_{uuid.uuid4().hex[:8]}.jpg"
-                    filepath = os.path.join(undetected_folder, filename)
-                    cv2.imwrite(filepath, crop)
-                    
-                    rel_path = f"dataset/undetected_faces/{filename}"
+                face_crop = image_np[crop_y1:crop_y2, crop_x1:crop_x2]
+                if face_crop is not None and face_crop.size > 0:
+                    filename = f"unknown_{unknown_counter:03d}.jpg"
+                    save_path = os.path.join(session_unknown_dir, filename)
+                    cv2.imwrite(save_path, face_crop)
+                    rel_path = f"dataset/unknown_faces/{session_folder_name}/{filename}"
+
+                    import base64
+                    _, crop_buffer = cv2.imencode('.jpg', face_crop)
+                    crop_b64 = base64.b64encode(crop_buffer).decode('utf-8')
+
                     undetected_saved.append({
                         'image_path': rel_path,
+                        'image_b64': crop_b64,
                         'bbox': [int(x), int(y), int(w), int(h)]
                     })
-                    
-                cv2.rectangle(stamped_img, (x, y), (x + w, y + h), (255, 61, 0), 2)
-                cv2.putText(stamped_img, "UNKNOWN / UNREGISTERED", 
-                            (x, max(y - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 61, 0), 2)
+                    unknown_counter += 1
+
+                cv2.rectangle(stamped_img, (x, y), (x + w, y + h), (255, 152, 0), 2)
+                cv2.putText(stamped_img, "UNKNOWN FACE", (x, max(y - 10, 20)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 152, 0), 2)
 
         return stamped_img, recognized_results, undetected_saved
 

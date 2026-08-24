@@ -26,99 +26,9 @@
   transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* ==================== FLOATING 3D ORBS ==================== */
-.floating-orbs-container {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-
-.floating-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.3;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-}
-
-.orb-1 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, #7f00ff, #e100ff, transparent 70%);
-  top: 10%;
-  left: -5%;
-  animation: orbFloat1 18s ease-in-out infinite alternate;
-}
-
-.orb-2 {
-  width: 350px;
-  height: 350px;
-  background: radial-gradient(circle, #00f2fe, #4facfe, transparent 70%);
-  top: 60%;
-  right: -8%;
-  animation: orbFloat2 22s ease-in-out infinite alternate;
-}
-
-.orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, #00e676, #00b0ff, transparent 70%);
-  bottom: 5%;
-  left: 30%;
-  animation: orbFloat3 15s ease-in-out infinite alternate;
-}
-
-.orb-4 {
-  width: 250px;
-  height: 250px;
-  background: radial-gradient(circle, #ff3355, #ff6b6b, transparent 70%);
-  top: 25%;
-  right: 20%;
-  animation: orbFloat4 20s ease-in-out infinite alternate;
-}
-
-.orb-5 {
-  width: 200px;
-  height: 200px;
-  background: radial-gradient(circle, #ffbe0b, #ff6d00, transparent 70%);
-  top: 50%;
-  left: 15%;
-  animation: orbFloat5 25s ease-in-out infinite alternate;
-}
-
-@keyframes orbFloat1 {
-  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
-  33% { transform: translate(80px, 60px) rotate(120deg) scale(1.15); }
-  66% { transform: translate(-40px, 120px) rotate(240deg) scale(0.9); }
-  100% { transform: translate(120px, -30px) rotate(360deg) scale(1.1); }
-}
-
-@keyframes orbFloat2 {
-  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
-  50% { transform: translate(-100px, -80px) rotate(180deg) scale(1.2); }
-  100% { transform: translate(60px, 40px) rotate(360deg) scale(0.95); }
-}
-
-@keyframes orbFloat3 {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(70px, -60px) scale(1.3); }
-  100% { transform: translate(-50px, 30px) scale(0.85); }
-}
-
-@keyframes orbFloat4 {
-  0% { transform: translate(0, 0) scale(1) rotate(0deg); }
-  50% { transform: translate(-60px, 80px) scale(1.1) rotate(180deg); }
-  100% { transform: translate(40px, -40px) scale(0.9) rotate(360deg); }
-}
-
-@keyframes orbFloat5 {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(90px, -50px) scale(1.2); }
-  100% { transform: translate(-70px, 60px) scale(0.85); }
+/* Disabled floating orbs for clean UI */
+.floating-orbs-container, .floating-orb {
+  display: none !important;
 }
 
 /* ==================== PARTICLE CANVAS ==================== */
@@ -129,76 +39,7 @@
   pointer-events: none;
 }
 
-/* ==================== HOLOGRAPHIC SHIMMER ==================== */
-.holo-shimmer {
-  position: relative;
-  overflow: hidden;
-}
-
-.holo-shimmer::after {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    45deg,
-    transparent 30%,
-    rgba(0, 242, 254, 0.06) 40%,
-    rgba(192, 132, 252, 0.06) 50%,
-    transparent 60%
-  );
-  animation: holoShimmer 6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes holoShimmer {
-  0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-  100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-}
-
-/* ==================== AURORA BORDER EFFECT ==================== */
-.aurora-border {
-  position: relative;
-  z-index: 1;
-}
-
-.aurora-border::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: linear-gradient(
-    60deg,
-    #00f2fe,
-    #7f00ff,
-    #e100ff,
-    #00e676,
-    #4facfe,
-    #00f2fe
-  );
-  background-size: 400% 400%;
-  animation: auroraMove 8s ease infinite;
-  z-index: -1;
-  filter: blur(4px);
-  opacity: 0.7;
-}
-
-.aurora-border::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--bg-card);
-  z-index: -1;
-}
-
-@keyframes auroraMove {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
+/* Disabled Holographic & Aurora animations for clean UI */
 
 /* ==================== CINEMATIC ENTRANCE ANIMATIONS ==================== */
 
@@ -420,60 +261,9 @@
   transform: rotateY(180deg);
 }
 
-/* ==================== MORPHING BACKGROUND ==================== */
-.morph-bg {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: 
-    radial-gradient(ellipse at 20% 50%, rgba(0, 242, 254, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(192, 132, 252, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, rgba(0, 230, 118, 0.06) 0%, transparent 50%);
-  animation: morphBg 20s ease-in-out infinite alternate;
-}
-
-@keyframes morphBg {
-  0% {
-    background:
-      radial-gradient(ellipse at 20% 50%, rgba(0, 242, 254, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 20%, rgba(192, 132, 252, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 80%, rgba(0, 230, 118, 0.06) 0%, transparent 50%);
-  }
-  50% {
-    background:
-      radial-gradient(ellipse at 70% 30%, rgba(0, 242, 254, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 30% 70%, rgba(192, 132, 252, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 60%, rgba(255, 51, 85, 0.06) 0%, transparent 50%);
-  }
-  100% {
-    background:
-      radial-gradient(ellipse at 40% 80%, rgba(0, 242, 254, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 60% 10%, rgba(255, 190, 11, 0.06) 0%, transparent 50%),
-      radial-gradient(ellipse at 20% 40%, rgba(192, 132, 252, 0.08) 0%, transparent 50%);
-  }
-}
-
-/* ==================== NAVBAR 3D ENHANCEMENTS ==================== */
+/* Clean Navbar styling */
 .navbar-3d {
-  transform-style: preserve-3d;
-  transition: all 0.4s ease;
-  box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.5),
-    0 0 1px rgba(0, 242, 254, 0.3);
-}
-
-.navbar-3d .brand-icon {
-  animation: pulseGlow3D 3s infinite alternate, iconFloat 6s ease-in-out infinite;
-}
-
-@keyframes iconFloat {
-  0%, 100% { transform: translateY(0) rotateZ(0deg); }
-  50% { transform: translateY(-3px) rotateZ(3deg); }
-}
-
-@keyframes pulseGlow3D {
-  0% { box-shadow: 0 0 20px rgba(0, 242, 254, 0.3); transform: translateZ(0); }
-  100% { box-shadow: 0 0 40px rgba(0, 242, 254, 0.7); transform: translateZ(5px); }
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 /* ==================== TAB BUTTON 3D ==================== */

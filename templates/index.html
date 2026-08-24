@@ -18,17 +18,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <!-- 3D Background Layers -->
-    <canvas id="particleCanvas"></canvas>
-    <div class="morph-bg"></div>
-    <div class="floating-orbs-container">
-        <div class="floating-orb orb-1"></div>
-        <div class="floating-orb orb-2"></div>
-        <div class="floating-orb orb-3"></div>
-        <div class="floating-orb orb-4"></div>
-        <div class="floating-orb orb-5"></div>
-    </div>
-
     <div id="app">
         <!-- IP Warning Banner for Browser Camera Restrictions -->
         <div id="ipWarningBanner" style="display:none; background: rgba(255, 171, 0, 0.25); border-bottom: 1px solid #ffab00; padding: 0.85rem 2rem; text-align: center; color: #ffbe0b; font-weight: 700; font-size: 0.95rem; position: sticky; top: 0; z-index: 1000; backdrop-filter: blur(10px);">
@@ -143,9 +132,21 @@
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; flex-wrap: wrap;" class="anim-enter anim-delay-2">
                     <button onclick="admin.showTab('teachers')" id="tabBtnTeachers" class="btn btn-outline tab-3d active"><i class="fa-solid fa-users"></i> Manage Teachers</button>
                     <button onclick="admin.showTab('students')" id="tabBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Manage Students</button>
-                    <button onclick="admin.showTab('attendance')" id="tabBtnAttendance" class="btn btn-outline tab-3d"><i class="fa-solid fa-clock-rotate-left"></i> Pending Attendance (<span id="pendingAttendanceBadge">0</span>)</button>
-                    <button onclick="admin.showTab('reports')" id="tabBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-file-export"></i> Reports & Export</button>
-                    <button onclick="admin.showTab('email')" id="tabBtnEmail" class="btn btn-outline tab-3d"><i class="fa-solid fa-envelope"></i> SMTP Email Alerts</button>
+                    <button onclick="admin.showTab('unknownfaces')" id="tabBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-check"></i> Unknown Face Approval</button>
+                    <button onclick="admin.showTab('reports')" id="tabBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-clock-rotate-left"></i> Attendance Finalization & History</button>
+                    <button onclick="admin.showTab('email')" id="tabBtnEmail" class="btn btn-outline tab-3d"><i class="fa-solid fa-envelope"></i> Parent Email Alerts (Gmail)</button>
+                </div>
+
+                <!-- Admin Tab Content: Unknown Face Approval -->
+                <div id="adminTabUnknownFaces" class="glass-card holo-shimmer" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div>
+                            <h3><i class="fa-solid fa-user-check" style="color: var(--neon-cyan);"></i> Unknown Face Assignment Approval</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review teacher manual unknown face mappings and approve/reject before final attendance is recorded.</p>
+                        </div>
+                        <button onclick="admin.loadUnknownFaceApprovals()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh List</button>
+                    </div>
+                    <div id="adminUnknownFacesGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem;"></div>
                 </div>
 
                 <!-- Admin Tab Content: Teachers -->
@@ -175,7 +176,7 @@
                 <div id="adminTabStudents" class="glass-card holo-shimmer" style="display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <h3>Enrolled Students Directory</h3>
-                        <button onclick="webcam.openAddStudentModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Register Student with Face</button>
+                        <button onclick="webcam.openAddStudentWizard()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Register Student with Face</button>
                     </div>
                     <div class="table-responsive">
                         <table class="custom-table">
@@ -184,38 +185,12 @@
                                     <th>Roll No</th>
                                     <th>Student Name</th>
                                     <th>Class</th>
-                                    <th>Parent Email</th>
+                                    <th>Parent Mobile Number</th>
                                     <th>Face Encoding</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="studentsTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Admin Tab Content: Pending Attendance Sessions -->
-                <div id="adminTabAttendance" class="glass-card holo-shimmer" style="display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
-                        <div>
-                            <h3 style="margin-bottom: 0.3rem;"><i class="fa-solid fa-clock-rotate-left"></i> Pending Attendance Sessions to Finalize</h3>
-                            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Attendance sessions conducted by teachers awaiting Admin verification, manual face claim approvals, and parent email dispatch.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="table-responsive">
-                        <table class="custom-table">
-                            <thead>
-                                <tr>
-                                    <th>Session Title</th>
-                                    <th>Class Name</th>
-                                    <th>Conducted By Teacher</th>
-                                    <th>Date & Time</th>
-                                    <th>Status / Face Claims</th>
-                                    <th>Action / Finalize</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pendingAttendanceTableBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -232,7 +207,7 @@
                                     <th>Conducted By</th>
                                     <th>Date & Time</th>
                                     <th>Present / Total</th>
-                                    <th>Finalize / Export Downloads</th>
+                                    <th>Finalize & SMS / Export Downloads</th>
                                 </tr>
                             </thead>
                             <tbody id="adminReportsTableBody"></tbody>
@@ -242,35 +217,92 @@
 
                 <!-- Admin Tab Content: Email Settings -->
                 <div id="adminTabEmail" class="glass-card holo-shimmer" style="display: none;">
-                    <h3 style="margin-bottom: 0.5rem;"><i class="fa-solid fa-envelope-circle-check"></i> Parent Absence Email Alert Settings</h3>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
-                        To deliver real emails to parent inboxes (e.g. Gmail/Yahoo), enter your sender email and Gmail 16-character App Password below.
-                    </p>
-
-                    <form id="emailSettingsForm" onsubmit="admin.handleSaveEmailSettings(event)" style="max-width: 600px;">
-                        <div class="form-group">
-                            <label class="form-label"><i class="fa-solid fa-at"></i> Sender Gmail Address</label>
-                            <input type="email" id="smtpEmailInput" class="form-control" placeholder="your.name@gmail.com" required>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3 style="margin-bottom: 0.3rem;"><i class="fa-solid fa-envelope" style="color: var(--neon-cyan);"></i> Parent Absence Email Alerts (Gmail SMTP)</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Automated parent absence email notification system triggered upon Admin attendance finalization.</p>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label"><i class="fa-solid fa-key"></i> Gmail App Password (16-characters)</label>
-                            <input type="password" id="smtpPasswordInput" class="form-control" placeholder="xxxx xxxx xxxx xxxx">
-                            <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.35rem;">
-                                Note: Generate a 16-character App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color: var(--neon-cyan);">myaccount.google.com/apppasswords</a> (Requires 2-Step Verification).
+                        
+                        <!-- Mode Banner Indicator -->
+                        <div style="display: flex; align-items: center; gap: 0.75rem; background: rgba(0, 242, 254, 0.1); border: 1px solid var(--neon-cyan); padding: 0.6rem 1.25rem; border-radius: var(--radius-md);">
+                            <i class="fa-solid fa-shield-halved" style="color: var(--neon-cyan); font-size: 1.3rem;"></i>
+                            <div>
+                                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 700;">Primary Notification Gateway</div>
+                                <div id="emailModeBadgeDisplay" style="font-weight: 800; color: var(--neon-cyan); font-size: 1rem;">Gmail SMTP Server</div>
                             </div>
                         </div>
-                        <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
-                            <input type="checkbox" id="enableRealEmailCheck" style="width: 18px; height: 18px; cursor: pointer;">
-                            <label for="enableRealEmailCheck" style="cursor: pointer; font-weight: 700; font-size: 0.9rem; margin: 0;">
-                                Enable Real Parent Email Delivery via Gmail SMTP
-                            </label>
-                        </div>
+                    </div>
 
-                        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                            <button type="submit" class="btn btn-emerald"><i class="fa-solid fa-floppy-disk"></i> Save Email Settings</button>
-                            <button type="button" onclick="admin.sendTestEmail()" class="btn btn-outline"><i class="fa-solid fa-paper-plane"></i> Send Test Email</button>
+                    <div class="grid-2" style="margin-bottom: 2rem;">
+                        <!-- Left Form: Configuration -->
+                        <form id="emailSettingsForm" onsubmit="admin.handleSaveEmailSettings(event)">
+                            <div class="form-group">
+                                <label class="form-label"><i class="fa-solid fa-at"></i> Gmail Sender Address (GMAIL_EMAIL)</label>
+                                <input type="email" id="gmailEmailInput" class="form-control" placeholder="e.g. yourproject@gmail.com">
+                                <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
+                                    * The Gmail account used to send parent absence notifications.
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label"><i class="fa-solid fa-key"></i> 16-Character Google App Password (GMAIL_APP_PASSWORD)</label>
+                                <input type="password" id="gmailAppPasswordInput" class="form-control" placeholder="Enter 16-character App Password">
+                                <small style="color: var(--neon-emerald); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
+                                    * Generate at: Google Account -> Security -> 2-Step Verification -> App Passwords.
+                                </small>
+                            </div>
+
+                            <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+                                <input type="checkbox" id="enableEmailCheck" style="width: 18px; height: 18px; cursor: pointer;" checked>
+                                <label for="enableEmailCheck" style="cursor: pointer; font-weight: 700; font-size: 0.9rem; margin: 0;">
+                                    Enable Automated Parent Absence Email Alerts
+                                </label>
+                            </div>
+
+                            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                                <button type="submit" class="btn btn-emerald" style="flex: 1;"><i class="fa-solid fa-floppy-disk"></i> Save Email Settings</button>
+                                <button type="button" onclick="admin.openTestEmailModal()" class="btn btn-outline" style="flex: 1;"><i class="fa-solid fa-paper-plane"></i> Send Test Email</button>
+                            </div>
+                        </form>
+
+                        <!-- Right Box: Instructions -->
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem;">
+                            <h4 style="margin-bottom: 0.75rem; color: var(--neon-cyan);"><i class="fa-solid fa-circle-info"></i> Gmail SMTP Integration Details</h4>
+                            <p style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.6;">
+                                The attendance system automatically dispatches parent absence emails via <strong>Gmail SMTP (`smtp.gmail.com:587` TLS)</strong> when Admin finalizes attendance.
+                            </p>
+                            <ul style="font-size: 0.85rem; color: var(--text-muted); margin-left: 1.25rem; line-height: 1.8;">
+                                <li><strong>100% Free</strong> — Zero SMS gateway fees or balance top-ups.</li>
+                                <li><strong>Timing</strong> — Triggered ONLY after Admin clicks <em>FINALIZE ATTENDANCE</em>.</li>
+                                <li><strong>Duplicate Protection</strong> — Prevents sending multiple emails per session/student.</li>
+                                <li><strong>Masked Logs</strong> — Parent emails masked in logs (e.g. <code>p***@domain.com</code>).</li>
+                                <li><strong>App Password Required</strong> — Create at Google Account Security page.</li>
+                            </ul>
                         </div>
-                    </form>
+                    </div>
+
+                    <!-- Email Notification History Table -->
+                    <div style="border-top: 1px solid var(--border-glass); padding-top: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h4><i class="fa-solid fa-clock-rotate-left"></i> Parent Email Notification History Log</h4>
+                            <button onclick="admin.loadEmailLogs()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh Logs</button>
+                        </div>
+                        <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+                            <table class="custom-table">
+                                <thead>
+                                    <tr>
+                                        <th>Student</th>
+                                        <th>Roll No</th>
+                                        <th>Parent Email</th>
+                                        <th>Session / Subject</th>
+                                        <th>Status</th>
+                                        <th>Timestamp</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminEmailLogsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -279,7 +311,7 @@
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;" class="anim-enter">
                     <div>
                         <h1 style="font-family: var(--font-heading); font-size: 2rem;" class="text-glow-cyan">Teacher Attendance Portal</h1>
-                        <p style="color: var(--text-muted);">Conduct live AI face recognition attendance, add students, and manage manual overrides.</p>
+                        <p style="color: var(--text-muted);">Conduct live AI face recognition attendance, register students, and view reports.</p>
                     </div>
                     <span class="role-pill teacher badge-3d"><i class="fa-solid fa-chalkboard-user"></i> Faculty Portal</span>
                 </div>
@@ -288,33 +320,35 @@
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; flex-wrap: wrap;" class="anim-enter anim-delay-2">
                     <button onclick="teacher.showTab('attendance')" id="tabTeacherBtnAttendance" class="btn btn-outline tab-3d active"><i class="fa-solid fa-camera-retro"></i> 🤖 Take Attendance</button>
                     <button onclick="teacher.showTab('students')" id="tabTeacherBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Enrolled Students</button>
-                    <button onclick="teacher.showTab('undetected')" id="tabTeacherBtnUndetected" class="btn btn-outline tab-3d"><i class="fa-solid fa-image"></i> Undetected Faces (<span id="teacherUndetectedBadge">0</span>)</button>
                     <button onclick="teacher.showTab('reports')" id="tabTeacherBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-file-export"></i> Sessions & Downloads</button>
                 </div>
 
                 <!-- Teacher Tab: Take Attendance -->
                 <div id="teacherTabAttendance">
-                    <div class="glass-card glow-border-cyan holo-shimmer gradient-border-anim" style="margin-bottom: 2rem; text-align: center; padding: 2.5rem; background: linear-gradient(135deg, rgba(0,242,254,0.08) 0%, rgba(13,20,36,0.85) 100%);">
+                    <div class="glass-card glow-border-cyan" style="margin-bottom: 2rem; text-align: center; padding: 2.5rem; background: rgba(13,20,36,0.85);">
                         <h2 style="font-family: var(--font-heading); margin-bottom: 0.6rem; color: #ffffff; font-size: 1.8rem;" class="text-glow-cyan">
                             <i class="fa-solid fa-camera-retro" style="color: var(--neon-cyan);"></i> One-Click AI Live Face Detection
                         </h2>
                         <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 1.05rem;">
-                            Click the button below to turn on the camera, detect student faces automatically, and mark Present/Absent status in real-time.
+                            Click the button below to start the camera, detect student faces automatically, and record attendance in real-time.
                         </p>
 
-                        <button onclick="teacher.startLiveSession()" class="btn btn-primary btn-lg btn-3d pulse-ring" style="font-size: 1.25rem; padding: 1.1rem 2.5rem; background: var(--gradient-cyan); box-shadow: var(--shadow-glow-cyan); letter-spacing: 0.5px;">
+                        <button onclick="teacher.startLiveSession()" class="btn btn-primary btn-lg btn-3d" style="font-size: 1.25rem; padding: 1.1rem 2.5rem; background: var(--gradient-cyan); box-shadow: var(--shadow-glow-cyan); letter-spacing: 0.5px;">
                             <i class="fa-solid fa-camera-retro"></i> 🤖 Start Attendance Camera
                         </button>
                     </div>
 
                     <!-- Live Camera Section -->
-                    <div id="liveAttendancePanel" class="glass-card glow-border-cyan holo-shimmer" style="margin-bottom: 2rem; display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div id="liveAttendancePanel" class="glass-card glow-border-cyan" style="margin-bottom: 2rem; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
                             <div>
-                                <h3 id="activeSessionTitle" style="font-family: var(--font-heading);">Live Attendance Feed</h3>
-                                <p id="activeSessionMeta" style="color: var(--text-muted); font-size: 0.85rem;">Click the button below to snap photo & run AI face detection in real-time.</p>
+                                <h3 id="activeSessionTitle" style="font-family: var(--font-heading); margin-bottom: 0.2rem;">Live Attendance Feed</h3>
+                                <p id="activeSessionMeta" style="color: var(--text-muted); font-size: 0.85rem;">Status: <span id="cameraStatusLabel" style="color: var(--neon-emerald); font-weight: bold;">Ready</span> | Recognized Students: <span id="liveDetectedCount" style="color: var(--neon-cyan); font-weight: bold;">0</span></p>
                             </div>
-                            <button onclick="teacher.stopLiveSession()" class="btn btn-outline"><i class="fa-solid fa-stop"></i> End Camera Feed</button>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button id="pauseCamBtn" onclick="teacher.pauseCameraFeed()" class="btn btn-outline btn-sm"><i class="fa-solid fa-pause"></i> Pause</button>
+                                <button onclick="teacher.submitSessionForApproval()" class="btn btn-emerald btn-sm"><i class="fa-solid fa-paper-plane"></i> Submit Session for Admin Approval</button>
+                            </div>
                         </div>
 
                         <div class="grid-2">
@@ -326,14 +360,6 @@
                                     
                                     <div id="cameraFlashOverlay" class="camera-flash"></div>
 
-                                    <div class="scanner-overlay">
-                                        <div class="corner-bracket corner-top-left"></div>
-                                        <div class="corner-bracket corner-top-right"></div>
-                                        <div class="corner-bracket corner-bottom-left"></div>
-                                        <div class="corner-bracket corner-bottom-right"></div>
-                                        <div class="scanner-line"></div>
-                                    </div>
-
                                     <div class="live-indicator">
                                         <div class="dot-pulse"></div>
                                         AI LIVE CAMERA READY
@@ -342,20 +368,29 @@
 
                                 <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
                                     <button id="snapDetectionBtn" onclick="teacher.triggerSnapDetection()" class="btn btn-primary btn-lg" style="flex: 2; font-size: 1.1rem; letter-spacing: 0.5px; background: var(--gradient-cyan); box-shadow: var(--shadow-glow-cyan);">
-                                        <i class="fa-solid fa-camera-retro"></i> 📸 Snap Photo & Run AI Face Detection
+                                        <i class="fa-solid fa-camera-retro"></i> 📸 Snap Photo & Detect Faces
                                     </button>
                                     <button id="resumeStreamBtn" onclick="teacher.resumeLiveVideoFeed()" class="btn btn-purple btn-lg" style="flex: 1; display: none;">
-                                        <i class="fa-solid fa-video"></i> 🎥 Live Stream
+                                        <i class="fa-solid fa-video"></i> 🎥 Resume Feed
                                     </button>
                                 </div>
                             </div>
 
                             <div>
-                                <h4 style="margin-bottom: 1rem;"><i class="fa-solid fa-users"></i> Session Attendance Real-Time Log</h4>
+                                <h4 style="margin-bottom: 1rem;"><i class="fa-solid fa-users"></i> Session Recognized Students</h4>
                                 <div style="max-height: 360px; overflow-y: auto; background: rgba(5, 8, 17, 0.7); padding: 1.1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
                                     <ul id="liveAttendanceList" style="list-style: none;"></ul>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Teacher Unknown Faces Gallery -->
+                        <div style="margin-top: 2rem; border-top: 1px solid var(--border-glass); padding-top: 1.5rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                <h4><i class="fa-solid fa-user-secret" style="color: var(--neon-cyan);"></i> Session Unknown Faces (Requires Manual Assignment)</h4>
+                                <button onclick="teacher.loadUnknownFaces()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh Unknown Faces</button>
+                            </div>
+                            <div id="teacherUnknownFacesGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem;"></div>
                         </div>
                     </div>
                 </div>
@@ -364,7 +399,7 @@
                 <div id="teacherTabStudents" class="glass-card holo-shimmer" style="display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <h3>Enrolled Class Students Directory</h3>
-                        <button onclick="webcam.openAddStudentModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Register Student with Face</button>
+                        <button onclick="webcam.openAddStudentWizard()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Register Student with Face</button>
                     </div>
                     <div class="table-responsive">
                         <table class="custom-table">
@@ -373,7 +408,7 @@
                                     <th>Roll No</th>
                                     <th>Student Name</th>
                                     <th>Class</th>
-                                    <th>Parent Email</th>
+                                    <th>Parent Mobile Number</th>
                                     <th>Face Encoding</th>
                                     <th>Actions</th>
                                 </tr>
@@ -381,14 +416,6 @@
                             <tbody id="teacherStudentsTableBody"></tbody>
                         </table>
                     </div>
-                </div>
-
-                <!-- Teacher Tab: Undetected Faces Gallery -->
-                <div id="teacherTabUndetected" class="glass-card holo-shimmer" style="display: none;">
-                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-image"></i> Undetected Faces Gallery</h3>
-                    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">When AI detects unrecognized faces in live snapshots, they appear here. Select a student to submit a manual attendance request for Admin approval.</p>
-
-                    <div id="teacherUndetectedGallery" class="grid-3" style="min-height: 200px;"></div>
                 </div>
 
                 <!-- Teacher Tab: Sessions & Reports -->
@@ -497,170 +524,172 @@
                     <input type="text" id="editStClassName" class="form-control" required placeholder="e.g. Computer Science - Year 4">
                 </div>
                 <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-envelope"></i> Parent Email</label>
-                    <input type="email" id="editStParentEmail" class="form-control" required placeholder="parent@gmail.com">
+                    <label class="form-label"><i class="fa-solid fa-mobile-screen-button"></i> Parent Mobile Number (REQUIRED)</label>
+                    <input type="tel" id="editStParentPhone" class="form-control" required placeholder="e.g. +91 9876543210">
                 </div>
                 <button type="submit" class="btn btn-primary btn-3d" style="width: 100%;"><i class="fa-solid fa-floppy-disk"></i> Update Student</button>
             </form>
         </div>
     </div>
 
-    <!-- Capture Student Face Photo Modal -->
-    <div id="captureStudentFaceModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 600px;">
+    <!-- Send Test Email Modal (Admin) -->
+    <div id="testEmailModal" class="modal-overlay">
+        <div class="modal-container">
             <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-camera"></i> Capture Face Photo: <span id="captureModalStudentName" style="color: var(--neon-cyan);"></span></h3>
-                <button onclick="webcam.closeCaptureModalForStudent()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+                <h3 class="modal-title"><i class="fa-solid fa-paper-plane"></i> Send Test Parent Email</h3>
+                <button onclick="admin.closeTestEmailModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="admin.handleSendTestEmail(event)">
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-envelope"></i> Recipient Email Address *</label>
+                    <input type="email" id="testEmailTargetInput" class="form-control" required placeholder="e.g. your_email@gmail.com">
+                    <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
+                        * Sends a single test email using configured Gmail SMTP credentials.
+                    </small>
+                </div>
+                <button type="submit" class="btn btn-emerald btn-3d" style="width: 100%;"><i class="fa-solid fa-paper-plane"></i> Send Test Email Now</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 7-STEP STUDENT REGISTRATION WIZARD MODAL -->
+    <div id="addStudentWizardModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 650px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-user-plus"></i> Student Registration Workflow</h3>
+                <button onclick="webcam.closeAddStudentWizard()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <div style="text-align: center;">
+            <!-- Step Progress Indicator -->
+            <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem;">
+                <span id="stepIndicator1" style="font-size: 0.82rem; font-weight: 700; color: var(--neon-cyan);">1. Details</span>
+                <span id="stepIndicator2" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">2. Mobile</span>
+                <span id="stepIndicator3" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">3. Camera</span>
+                <span id="stepIndicator4" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">4. Detect</span>
+                <span id="stepIndicator5" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">5. Preview</span>
+                <span id="stepIndicator6" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">6. Confirm</span>
+                <span id="stepIndicator7" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">7. Encoded</span>
+            </div>
+
+            <!-- STEP 1 & 2: Student Details & Parent Mobile Form -->
+            <div id="regStepDetails">
+                <h4 style="margin-bottom: 1rem; color: var(--neon-cyan);"><i class="fa-solid fa-clipboard-user"></i> Step 1 & 2: Student Information</h4>
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-user"></i> Student Name *</label>
+                    <input type="text" id="wizStName" class="form-control" required placeholder="e.g. Siva Bevara">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-id-badge"></i> Roll Number *</label>
+                    <input type="text" id="wizStRollNo" class="form-control" required placeholder="e.g. 23">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-school"></i> Class Name *</label>
+                    <input type="text" id="wizStClassName" class="form-control" required value="Computer Science - Year 4">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-mobile-screen-button"></i> Parent Mobile Number (REQUIRED) *</label>
+                    <input type="tel" id="wizStParentPhone" class="form-control" required placeholder="e.g. +91 9876543210">
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.25rem;">Standard 10-digit Indian mobile number.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fa-solid fa-envelope"></i> Parent Email Address (REQUIRED) *</label>
+                    <input type="email" id="wizStParentEmail" class="form-control" required placeholder="e.g. parent@example.com">
+                    <div style="font-size: 0.78rem; color: var(--neon-cyan); margin-top: 0.25rem;">Syntactically validated email for automated absence Gmail alerts.</div>
+                </div>
+
+                <button type="button" onclick="webcam.proceedToCameraStep()" class="btn btn-primary btn-lg btn-3d" style="width: 100%; margin-top: 1rem;">
+                    Next: Open Camera for Face Capture <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+
+            <!-- STEP 3 & 4: Camera Auto-Open & Face Detection Screen -->
+            <div id="regStepCamera" style="display: none; text-align: center;">
+                <h4 style="margin-bottom: 0.5rem; color: var(--neon-cyan);"><i class="fa-solid fa-camera"></i> Step 3 & 4: Capture Student Face</h4>
+                
+                <div style="background: rgba(0, 242, 254, 0.08); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1rem; text-align: left; font-size: 0.85rem; color: var(--text-main);">
+                    <strong>Camera Instructions:</strong>
+                    <ul style="margin: 0.3rem 0 0 1.2rem; padding: 0; color: var(--text-muted);">
+                        <li>Look directly at the camera.</li>
+                        <li>Keep your face inside the frame.</li>
+                        <li>Ensure good lighting.</li>
+                        <li>Remove face obstruction if possible.</li>
+                        <li>Hold still for a moment.</li>
+                    </ul>
+                </div>
+
                 <div class="webcam-container" style="aspect-ratio: 4 / 3; position: relative; max-width: 480px; margin: 0 auto 1rem auto;">
-                    <video id="captureFaceVideo" class="webcam-video" autoplay playsinline muted></video>
-                    <canvas id="captureFaceCanvas" class="webcam-canvas" style="display: none;"></canvas>
-                    <img id="captureFacePreviewImg" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md); z-index: 5;" />
+                    <video id="wizCameraVideo" class="webcam-video" autoplay playsinline muted></video>
+                    <canvas id="wizCameraCanvas" class="webcam-canvas" style="display: none;"></canvas>
+                    <img id="wizCameraPreviewImg" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md); z-index: 5;" />
                 </div>
 
-                <!-- Initial Capture Button -->
-                <button id="captureFaceSnapBtn" onclick="webcam.snapStudentFacePhoto()" class="btn btn-primary btn-lg btn-3d pulse-ring" style="width: 100%; font-size: 1.1rem;">
-                    <i class="fa-solid fa-camera"></i> 📸 Take Photo
-                </button>
-
-                <!-- Result Panel (Shown after snap) -->
-                <div id="captureFaceResultPanel" style="display: none; margin-top: 1rem;">
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; padding: 0.65rem; background: rgba(0, 230, 118, 0.12); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: var(--radius-sm); margin-bottom: 1rem;">
-                        <i class="fa-solid fa-circle-check" style="color: var(--neon-emerald); font-size: 1.1rem;"></i>
-                        <span style="color: var(--neon-emerald); font-weight: 700; font-size: 0.9rem;">Face Photo Snapped! Click Save to Encode.</span>
-                    </div>
-                    <div style="display: flex; gap: 0.75rem;">
-                        <button onclick="webcam.retakeStudentFacePhoto()" class="btn btn-outline" style="flex: 1;">
-                            <i class="fa-solid fa-rotate-left"></i> Retake Photo
-                        </button>
-                        <button onclick="webcam.saveStudentFacePhoto()" class="btn btn-emerald" style="flex: 1;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Face Photo
-                        </button>
-                    </div>
+                <div id="wizCameraStatus" style="font-size: 0.9rem; margin-bottom: 1rem; color: var(--neon-emerald); font-weight: 700;">
+                    Camera Active — Detecting Face...
                 </div>
 
-                <div id="captureFaceModalStatus" style="font-size: 0.85rem; margin-top: 0.75rem; color: var(--neon-cyan);">
-                    Position student in front of camera, then click "Take Photo".
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Student Modal (Teacher & Admin) -->
-    <div id="addStudentModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 550px;">
-            <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-graduation-cap"></i> Register Student</h3>
-                <button onclick="webcam.closeAddStudentModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <form id="addStudentForm" onsubmit="webcam.handleSaveStudent(event)">
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-user"></i> Full Name</label>
-                    <input type="text" id="stName" class="form-control" required placeholder="e.g. Sarah Connor">
-                </div>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-id-badge"></i> Roll Number</label>
-                    <input type="text" id="stRollNo" class="form-control" required placeholder="e.g. CS-105">
-                </div>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-school"></i> Class Name</label>
-                    <input type="text" id="stClassName" class="form-control" required value="Computer Science - Year 4">
-                </div>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-envelope"></i> Parent Email (For Absence Alerts)</label>
-                    <input type="email" id="stParentEmail" class="form-control" required placeholder="parent@gmail.com">
-                </div>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-image"></i> Student Face Photo (Optional)</label>
-                    <input type="file" id="stPhotoFile" accept="image/*" class="form-control" onchange="webcam.handlePhotoFileSelect(event)">
-                    <div id="stPhotoPreviewContainer" style="display: none; margin-top: 0.75rem; text-align: center;">
-                        <img id="stPhotoPreviewImg" style="max-height: 160px; border-radius: var(--radius-md); border: 2px solid var(--neon-cyan); box-shadow: var(--shadow-glow-cyan);" />
-                        <p style="font-size: 0.8rem; color: var(--neon-emerald); margin-top: 0.4rem; font-weight: 600;">✓ Photo Ready for AI Encoding</p>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary btn-lg btn-3d" style="width: 100%; margin-top: 1rem;"><i class="fa-solid fa-cloud-arrow-up"></i> Save Student Data</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Undetected Faces Modal (Teacher Manual Matching) (Req 4, 9, 12) -->
-    <div id="undetectedModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-id-card-clip"></i> Unrecognized Faces Gallery (Manual Override)</h3>
-                <button onclick="teacher.closeUndetectedModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
-                Faces captured during live sessions that were not recognized by AI are stored here. Select a face image, pick the student from the class roster, and submit. The request will be sent to Admin for final approval.
-            </p>
-
-            <div id="undetectedGallery" class="face-gallery"></div>
-
-            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-glass); display: flex; justify-content: flex-end;">
-                <button onclick="teacher.closeUndetectedModal()" class="btn btn-outline"><i class="fa-solid fa-xmark"></i> Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Email Setup Modal (Teacher & Admin) -->
-    <div id="emailSetupModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 600px;">
-            <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-envelope"></i> Configure Parent Email Delivery</h3>
-                <button onclick="teacher.closeEmailSetupModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
-                Enter your Gmail address and 16-character App Password to deliver real absence email alerts directly to parent inboxes.
-            </p>
-
-            <form onsubmit="teacher.handleSaveEmailSetup(event)">
-                <div class="form-group">
-                    <label class="form-label">Sender Gmail Address</label>
-                    <input type="email" id="modalSmtpEmail" class="form-control" required placeholder="your.name@gmail.com">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Gmail App Password (16 Characters)</label>
-                    <input type="password" id="modalSmtpPassword" class="form-control" placeholder="xxxx xxxx xxxx xxxx">
-                    <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.35rem;">
-                        Generate at: <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color: var(--neon-cyan);">myaccount.google.com/apppasswords</a>
-                    </div>
-                </div>
-                <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
-                    <input type="checkbox" id="modalEnableRealCheck" style="width: 18px; height: 18px; cursor: pointer;">
-                    <label for="modalEnableRealCheck" style="cursor: pointer; font-weight: 700; font-size: 0.85rem; margin: 0;">
-                        Enable Real Parent Email Delivery via Gmail SMTP
-                    </label>
-                </div>
-                <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                    <button type="submit" class="btn btn-emerald" style="flex:1;"><i class="fa-solid fa-floppy-disk"></i> Save & Enable Real Email</button>
-                    <button type="button" onclick="teacher.sendTestEmailFromModal()" class="btn btn-outline"><i class="fa-solid fa-paper-plane"></i> Send Test Email</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Admin Face Claims Verification Modal -->
-    <div id="adminClaimsModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-id-card-clip"></i> Verify Teacher Face Claims</h3>
-                <button onclick="admin.closeClaimsModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
-                Review teacher-submitted unrecognized face matches for this attendance session. Approve or reject each claim before finalization.
-            </p>
-
-            <div id="adminClaimsGallery" class="face-gallery"></div>
-
-            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-glass); display: flex; justify-content: flex-end; gap: 1rem; flex-wrap: wrap;">
-                <button onclick="admin.closeClaimsModal()" class="btn btn-outline"><i class="fa-solid fa-xmark"></i> Close</button>
-                <button id="adminClaimsFinalizeBtn" onclick="admin.finalizeSessionFromClaimsModal()" class="btn btn-emerald btn-3d">
-                    <i class="fa-solid fa-circle-check"></i> Finalize Attendance & Dispatch Emails
+                <button id="wizSnapBtn" type="button" onclick="webcam.snapWizardPhoto()" class="btn btn-primary btn-lg btn-3d" style="width: 100%;">
+                    <i class="fa-solid fa-camera"></i> 📸 Capture Face Image
                 </button>
             </div>
+
+            <!-- STEP 5 & 6: Preview & Confirmation Screen -->
+            <div id="regStepPreview" style="display: none; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; padding: 0.75rem; background: rgba(0, 230, 118, 0.15); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: var(--radius-md); margin-bottom: 1.2rem;">
+                    <i class="fa-solid fa-circle-check" style="color: var(--neon-emerald); font-size: 1.2rem;"></i>
+                    <span style="color: var(--neon-emerald); font-weight: 800; font-size: 1.05rem;">All 5 Face Photos Captured Successfully</span>
+                </div>
+
+                <div style="background: rgba(13,20,36,0.8); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem; text-align: left;">
+                    <div style="margin-bottom: 1rem;">
+                        <h4 id="prevStudentName" style="color: #ffffff; margin-bottom: 0.3rem;">Student Name</h4>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem;">Roll No: <strong id="prevRollNo" style="color: var(--neon-cyan);">--</strong> | Class: <span id="prevClass">--</span></div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Parent Mobile: <span id="prevMobile" style="color: var(--neon-emerald);">--</span></div>
+                    </div>
+
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem;">5 Captured Face Images:</div>
+                    <div id="wizThumbnailsGrid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; margin-bottom: 0.5rem;"></div>
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button type="button" onclick="webcam.retakeWizardPhoto()" class="btn btn-outline" style="flex: 1;">
+                        <i class="fa-solid fa-rotate-left"></i> Retake All 5 Photos
+                    </button>
+                    <button type="button" onclick="webcam.confirmAndRegisterStudent()" class="btn btn-emerald btn-lg btn-3d" style="flex: 1.5;">
+                        <i class="fa-solid fa-circle-check"></i> Confirm & Register Student
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 7: Completion Screen -->
+            <div id="regStepComplete" style="display: none; text-align: center; padding: 2rem 1rem;">
+                <div style="font-size: 3.5rem; color: var(--neon-emerald); margin-bottom: 1rem;">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+                <h3 style="color: #ffffff; margin-bottom: 0.5rem;">Registration Complete!</h3>
+                <p style="color: var(--neon-emerald); font-weight: 700; font-size: 1.1rem; margin-bottom: 1.5rem;">
+                    Student registered successfully with face recognition.
+                </p>
+                <button type="button" onclick="webcam.closeAddStudentWizard()" class="btn btn-primary btn-lg">
+                    Done & Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Test SMS Modal -->
+    <div id="testSMSModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-paper-plane"></i> Send Test Parent SMS</h3>
+                <button onclick="admin.closeTestSMSModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="admin.handleSendTestSMS(event)">
+                <div class="form-group">
+                    <label class="form-label">Target Parent Mobile Number</label>
+                    <input type="tel" id="testSMSPhoneInput" class="form-control" required placeholder="e.g. +91 9876543210">
+                </div>
+                <button type="submit" class="btn btn-emerald" style="width: 100%;"><i class="fa-solid fa-paper-plane"></i> Send Test SMS Now</button>
+            </form>
         </div>
     </div>
 

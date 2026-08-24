@@ -18,8 +18,8 @@ def run_diagnostics():
     print(f"Detector loaded: {os.path.basename(YUNET_MODEL_PATH)} (Size: {os.path.getsize(YUNET_MODEL_PATH)} bytes)")
     print(f"Selected threshold: {face_engine.match_threshold}")
 
-    # 2. Test with real student images (Siva and Khaja)
-    img_siva_path = 'dataset/students/student_1_20260810150034.jpg'
+    # 2. Test with real student images
+    img_siva_path = 'dataset/students/student_STU-33_20260824155001.jpg'
     img_khaja_path = 'dataset/students/student_2_20260810144143.jpg'
 
     img_siva = cv2.imread(img_siva_path)

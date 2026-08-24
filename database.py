@@ -15,15 +15,45 @@ def init_db(app):
     os.makedirs(Config.EXPORT_DIR, exist_ok=True)
 
     with app.app_context():
-        # Set SQLite WAL mode and busy timeout for concurrent safety
+        # Set SQLite WAL mode and busy timeout for concurrent safety (SQLite only)
+        if db.engine.name == 'sqlite':
+            try:
+                with db.engine.connect() as conn:
+                    conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+                    conn.exec_driver_sql("PRAGMA busy_timeout=30000;")
+            except Exception:
+                pass
+
+        # Create missing tables safely without dropping existing tables or data
+        db.create_all()
+
+        # Safe schema migration for new columns on pre-existing tables
         try:
             with db.engine.connect() as conn:
-                conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
-                conn.exec_driver_sql("PRAGMA busy_timeout=30000;")
-        except Exception:
-            pass
-
-        db.create_all()
+                if db.engine.name == 'sqlite':
+                    cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(students)").fetchall()]
+                    if 'face_image_b64' not in cols:
+                        conn.exec_driver_sql("ALTER TABLE students ADD COLUMN face_image_b64 TEXT;")
+                    
+                    rec_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(attendance_records)").fetchall()]
+                    if 'snapshot_b64' not in rec_cols:
+                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN snapshot_b64 TEXT;")
+                    if 'sms_sent' not in rec_cols:
+                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN sms_sent BOOLEAN DEFAULT 0;")
+                    if 'sms_sent_at' not in rec_cols:
+                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN sms_sent_at DATETIME;")
+                    
+                    und_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(undetected_faces)").fetchall()]
+                    if 'image_b64' not in und_cols:
+                        conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN image_b64 TEXT;")
+                else: # PostgreSQL / Mysql
+                    conn.exec_driver_sql("ALTER TABLE students ADD COLUMN IF NOT EXISTS face_image_b64 TEXT;")
+                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS snapshot_b64 TEXT;")
+                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent BOOLEAN DEFAULT FALSE;")
+                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMP;")
+                    conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN IF NOT EXISTS image_b64 TEXT;")
+        except Exception as e:
+            print(f"Column migration notice: {e}")
 
         # Seed default Admin
         admin = User.query.filter_by(username='admin').first()
@@ -57,7 +87,7 @@ def init_db(app):
                 roll_no='CS-101',
                 class_name='Computer Science - Year 4',
                 parent_email='parent.alex@gmail.com',
-                parent_phone='+1987654321'
+                parent_phone='+919876543210'
             )
             s2 = Student(
                 student_code='STU002',
@@ -65,7 +95,7 @@ def init_db(app):
                 roll_no='CS-102',
                 class_name='Computer Science - Year 4',
                 parent_email='parent.emily@gmail.com',
-                parent_phone='+1987654322'
+                parent_phone='+919876543211'
             )
             s3 = Student(
                 student_code='STU003',
@@ -73,7 +103,7 @@ def init_db(app):
                 roll_no='CS-103',
                 class_name='Computer Science - Year 4',
                 parent_email='parent.michael@gmail.com',
-                parent_phone='+1987654323'
+                parent_phone='+919876543212'
             )
             db.session.add_all([s1, s2, s3])
 

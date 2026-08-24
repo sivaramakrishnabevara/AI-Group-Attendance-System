@@ -2,27 +2,15 @@
    ADVANCED GLOW EFFECTS & CAMERA SNAP ANIMATIONS
    ========================================================================== */
 
-/* Neon Border Pulse Animations */
+/* Clean Static Borders */
 .glow-border-cyan {
   border: 1px solid var(--neon-cyan) !important;
-  box-shadow: var(--shadow-glow-cyan) !important;
-  animation: cyanPulse 4s infinite alternate;
-}
-
-@keyframes cyanPulse {
-  0% { box-shadow: 0 0 15px rgba(0, 242, 254, 0.2); }
-  100% { box-shadow: 0 0 35px rgba(0, 242, 254, 0.5); }
+  box-shadow: 0 4px 12px rgba(0, 242, 254, 0.15) !important;
 }
 
 .glow-border-purple {
   border: 1px solid var(--neon-purple) !important;
-  box-shadow: var(--shadow-glow-purple) !important;
-  animation: purplePulse 4s infinite alternate;
-}
-
-@keyframes purplePulse {
-  0% { box-shadow: 0 0 15px rgba(176, 38, 255, 0.2); }
-  100% { box-shadow: 0 0 35px rgba(176, 38, 255, 0.5); }
+  box-shadow: 0 4px 12px rgba(176, 38, 255, 0.15) !important;
 }
 
 .glow-border-emerald {
@@ -141,19 +129,7 @@
 .corner-bottom-right { bottom: 15px; right: 15px; border-left: none; border-top: none; }
 
 .scanner-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
-  box-shadow: 0 0 20px var(--neon-cyan);
-  animation: scanLine 3s ease-in-out infinite alternate;
-}
-
-@keyframes scanLine {
-  0% { top: 0%; }
-  100% { top: 98%; }
+  display: none;
 }
 
 /* Camera Flash Animation */

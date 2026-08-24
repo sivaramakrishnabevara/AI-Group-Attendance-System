@@ -1,19 +1,18 @@
 /* ==========================================================================
    ADMIN MODULE
-   Handles Faculty Management, Student Directory, Pending Manual Approvals
+   Handles Faculty Management, Student Directory, Reports, SMS Settings
    ========================================================================== */
 
 const admin = {
     loadDashboardData() {
         this.loadTeachers();
         this.loadStudents();
-        this.loadPendingAttendance();
         this.loadAdminReports();
-        this.loadEmailSettings();
+        this.loadSMSSettings();
     },
 
     showTab(tabName) {
-        const tabs = ['Teachers', 'Students', 'Attendance', 'Reports', 'Email'];
+        const tabs = ['Teachers', 'Students', 'UnknownFaces', 'Reports', 'Email'];
         tabs.forEach(t => {
             const btn = document.getElementById(`tabBtn${t}`);
             const content = document.getElementById(`adminTab${t}`);
@@ -28,75 +27,285 @@ const admin = {
             }
         });
 
-        if (tabName.toLowerCase() === 'attendance') {
-            this.loadPendingAttendance();
-        } else if (tabName.toLowerCase() === 'teachers') {
+        if (tabName.toLowerCase() === 'teachers') {
             this.loadTeachers();
         } else if (tabName.toLowerCase() === 'students') {
             this.loadStudents();
+        } else if (tabName.toLowerCase() === 'unknownfaces') {
+            this.loadUnknownFaceApprovals();
         } else if (tabName.toLowerCase() === 'reports') {
             this.loadAdminReports();
         } else if (tabName.toLowerCase() === 'email') {
             this.loadEmailSettings();
+            this.loadEmailLogs();
         }
     },
 
-    async loadEmailSettings() {
+    async loadUnknownFaceApprovals() {
+        const gallery = document.getElementById('adminUnknownFacesGallery');
+        if (!gallery) return;
+        gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">Loading unknown face assignments...</div>';
+
         try {
-            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
+            const res = await fetch(getApiUrl('/api/unknown_faces'), {
                 headers: { 'Authorization': `Bearer ${auth.token}` }
             });
             const data = await res.json();
             if (data.success) {
-                document.getElementById('smtpEmailInput').value = data.settings.smtp_email || '';
-                document.getElementById('enableRealEmailCheck').checked = data.settings.enable_real_email;
+                gallery.innerHTML = '';
+                const unknownFaces = data.unknown_faces || data.undetected_faces || [];
+                
+                if (unknownFaces.length === 0) {
+                    gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem; grid-column: 1/-1;">No unknown faces pending approval.</div>';
+                    return;
+                }
+
+                unknownFaces.forEach(uf => {
+                    const card = document.createElement('div');
+                    card.className = 'glass-card';
+                    card.style.padding = '1rem';
+
+                    let actionsHtml = '';
+                    if (uf.status === 'APPROVED') {
+                        actionsHtml = `<div style="text-align:center; font-weight:bold; color:var(--neon-emerald); margin-top:0.5rem;"><i class="fa-solid fa-circle-check"></i> Approved (PRESENT)</div>`;
+                    } else if (uf.status === 'REJECTED') {
+                        actionsHtml = `<div style="text-align:center; font-weight:bold; color:#ef4444; margin-top:0.5rem;"><i class="fa-solid fa-circle-xmark"></i> Rejected</div>`;
+                    } else {
+                        actionsHtml = `
+                            <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                                <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-sm" style="flex:1;">
+                                    <i class="fa-solid fa-check"></i> APPROVE
+                                </button>
+                                <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'REJECT')" class="btn btn-danger btn-sm" style="flex:1;">
+                                    <i class="fa-solid fa-xmark"></i> REJECT
+                                </button>
+                            </div>
+                        `;
+                    }
+
+                    card.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem;">
+                            <span style="font-size:0.8rem; font-weight:bold; color:var(--neon-cyan);">Unknown #U${String(uf.id).padStart(3, '0')}</span>
+                            <span class="badge-status ${uf.status === 'APPROVED' ? 'badge-present' : uf.status === 'REJECTED' ? 'badge-absent' : 'badge-pending'}">${uf.status}</span>
+                        </div>
+                        <img src="${getApiUrl('/' + uf.image_path.replace(/^\//, ''))}" style="width:100%; height:140px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--border-glass);" />
+                        <div style="font-size:0.82rem; margin-top:0.4rem;"><strong>Suggested Student:</strong> ${uf.claimed_student_name || 'Unassigned'}</div>
+                        <div style="font-size:0.78rem; color:var(--text-muted);">Teacher: ${uf.claimed_by_teacher_name || 'N/A'} | Time: ${uf.timestamp}</div>
+                        ${actionsHtml}
+                    `;
+                    gallery.appendChild(card);
+                });
             }
         } catch (err) {
-            console.error("Error loading email settings:", err);
+            console.error("Error loading unknown face approvals:", err);
         }
     },
 
-    async handleSaveEmailSettings(e) {
+    async handleUnknownFaceAction(id, action) {
+        try {
+            const res = await fetch(getApiUrl(`/api/admin/unknown_faces/${id}/action`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`
+                },
+                body: JSON.stringify({ action })
+            });
+
+            const data = await res.json();
+            alert(data.message);
+            this.loadUnknownFaceApprovals();
+            this.loadAdminReports();
+        } catch (err) {
+            alert("Error acting on unknown face assignment.");
+        }
+    },
+
+    toggleSMSFields() {
+        const modeSelect = document.getElementById('smsModeSelect');
+        const realGroup = document.getElementById('realSmsFieldsGroup');
+        const badge = document.getElementById('smsModeBadgeDisplay');
+
+        if (!modeSelect) return;
+        const mode = modeSelect.value;
+
+        if (mode === 'SIMULATION') {
+            if (realGroup) realGroup.style.display = 'none';
+            if (badge) {
+                badge.innerText = 'SIMULATION (Free Project Mode)';
+                badge.style.color = 'var(--neon-cyan)';
+            }
+        } else {
+            if (realGroup) realGroup.style.display = 'block';
+            if (badge) {
+                badge.innerText = 'REAL_SMS (Paid Gateway Active)';
+                badge.style.color = 'var(--neon-emerald)';
+            }
+        }
+    },
+
+    async loadSMSSettings() {
+        try {
+            const res = await fetch(getApiUrl('/api/admin/settings/sms'), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (data.success && data.settings) {
+                const s = data.settings;
+                const modeSelect = document.getElementById('smsModeSelect');
+                if (modeSelect) modeSelect.value = s.sms_mode || 'SIMULATION';
+
+                const providerSelect = document.getElementById('smsProviderSelect');
+                if (providerSelect) providerSelect.value = s.sms_provider || 'FAST2SMS';
+
+                const routeSelect = document.getElementById('smsRouteSelect');
+                if (routeSelect) routeSelect.value = s.sms_route || 'q';
+
+                const keyInput = document.getElementById('smsApiKeyInput');
+                if (keyInput) keyInput.value = s.sms_api_key || '';
+
+                const secretInput = document.getElementById('smsApiSecretInput');
+                if (secretInput) secretInput.value = s.sms_api_secret || '';
+
+                const senderInput = document.getElementById('smsSenderIdInput');
+                if (senderInput) senderInput.value = s.sms_sender_id || 'ATTNDS';
+
+                const dltInput = document.getElementById('smsDltTeIdInput');
+                if (dltInput) dltInput.value = s.sms_dlt_te_id || '';
+
+                const urlInput = document.getElementById('smsHttpUrlInput');
+                if (urlInput) urlInput.value = s.sms_http_url || '';
+
+                const check = document.getElementById('enableSMSCheck');
+                if (check) check.checked = s.sms_enabled;
+
+                this.toggleSMSFields();
+            }
+        } catch (err) {
+            console.error("Error loading SMS settings:", err);
+        }
+        this.loadSMSLogs();
+    },
+
+    async loadSMSLogs() {
+        const tbody = document.getElementById('adminSMSLogsTableBody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">Loading SMS history...</td></tr>';
+
+        try {
+            const res = await fetch(getApiUrl('/api/admin/sms_logs'), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                tbody.innerHTML = '';
+                const logs = data.logs || [];
+                if (logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">No SMS notifications recorded yet. Finalize an attendance session to test.</td></tr>';
+                    return;
+                }
+
+                logs.forEach(l => {
+                    const tr = document.createElement('tr');
+                    let statusBadge = '';
+                    if (l.status === 'SIMULATED') {
+                        statusBadge = '<span class="badge-status" style="background: rgba(0, 242, 254, 0.15); color: var(--neon-cyan); border: 1px solid rgba(0, 242, 254, 0.4);">SIMULATED</span>';
+                    } else if (l.status === 'SENT') {
+                        statusBadge = '<span class="badge-status badge-present">✓ SENT</span>';
+                    } else {
+                        statusBadge = '<span class="badge-status badge-absent">FAILED</span>';
+                    }
+
+                    let modeBadge = l.mode === 'SIMULATION'
+                        ? '<span class="badge-status" style="background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.4);">SIMULATION</span>'
+                        : '<span class="badge-status badge-present">REAL_SMS</span>';
+
+                    tr.innerHTML = `
+                        <td><strong>${l.student_name}</strong></td>
+                        <td>${l.roll_no}</td>
+                        <td><code>${l.parent_mobile_masked}</code></td>
+                        <td>${l.session_title}</td>
+                        <td>${statusBadge}</td>
+                        <td>${modeBadge}</td>
+                        <td style="font-size: 0.8rem; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${l.message}">${l.message}</td>
+                        <td style="font-size: 0.8rem; color: var(--text-muted);">${l.timestamp}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        } catch (err) {
+            console.error("Error loading SMS logs:", err);
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: #ef4444;">Error loading SMS history.</td></tr>';
+        }
+    },
+
+    async handleSaveSMSSettings(e) {
         e.preventDefault();
-        const smtp_email = document.getElementById('smtpEmailInput').value.trim();
-        const smtp_password = document.getElementById('smtpPasswordInput').value.trim();
-        const enable_real_email = document.getElementById('enableRealEmailCheck').checked;
+        const sms_mode = document.getElementById('smsModeSelect').value;
+        const sms_provider = document.getElementById('smsProviderSelect').value;
+        const sms_route = document.getElementById('smsRouteSelect').value;
+        const sms_api_key = document.getElementById('smsApiKeyInput').value.trim();
+        const sms_api_secret = document.getElementById('smsApiSecretInput').value.trim();
+        const sms_sender_id = document.getElementById('smsSenderIdInput').value.trim();
+        const sms_dlt_te_id = document.getElementById('smsDltTeIdInput').value.trim();
+        const sms_http_url = document.getElementById('smsHttpUrlInput').value.trim();
+        const sms_enabled = document.getElementById('enableSMSCheck').checked;
 
         try {
-            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
+            const res = await fetch(getApiUrl('/api/admin/settings/sms'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`
                 },
-                body: JSON.stringify({ smtp_email, smtp_password, enable_real_email })
+                body: JSON.stringify({ sms_mode, sms_provider, sms_route, sms_api_key, sms_api_secret, sms_sender_id, sms_dlt_te_id, sms_http_url, sms_enabled })
             });
 
             const data = await res.json();
             alert(data.message);
+            this.toggleSMSFields();
+            this.loadSMSLogs();
         } catch (err) {
-            alert('Error saving email settings.');
+            alert('Error saving SMS settings.');
         }
     },
 
-    async sendTestEmail() {
-        const targetEmail = prompt("Enter email address to send test notice to:", document.getElementById('smtpEmailInput').value || auth.user.email);
-        if (!targetEmail) return;
+    openTestSMSModal() {
+        const modal = document.getElementById('testSMSModal');
+        if (modal) modal.classList.add('active');
+    },
+
+    closeTestSMSModal() {
+        const modal = document.getElementById('testSMSModal');
+        if (modal) modal.classList.remove('active');
+    },
+
+    async handleSendTestSMS(e) {
+        e.preventDefault();
+        const target_phone = document.getElementById('testSMSPhoneInput').value.trim();
+        if (!target_phone) {
+            alert('Please enter a target mobile number.');
+            return;
+        }
 
         try {
-            const res = await fetch(getApiUrl('/api/admin/settings/test_email'), {
+            const res = await fetch(getApiUrl('/api/admin/settings/test_sms'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`
                 },
-                body: JSON.stringify({ target_email: targetEmail })
+                body: JSON.stringify({ target_phone })
             });
 
             const data = await res.json();
             alert(data.message);
+            if (data.success) {
+                this.closeTestSMSModal();
+                this.loadSMSLogs();
+            }
         } catch (err) {
-            alert('Error sending test email.');
+            alert('Error executing test SMS.');
         }
     },
 
@@ -273,22 +482,20 @@ const admin = {
 
         students.forEach(s => {
             const tr = document.createElement('tr');
+            const mobileNum = s.parent_mobile_number || s.parent_phone || 'N/A';
             tr.innerHTML = `
                 <td><strong>${s.roll_no}</strong></td>
                 <td>${s.name}</td>
                 <td>${s.class_name}</td>
-                <td>${s.parent_email}</td>
+                <td><code>${mobileNum}</code></td>
                 <td>
                     <span class="badge-status ${s.has_face ? 'badge-present' : 'badge-absent'}">
                         ${s.has_face ? '✓ Encoded' : 'Missing Face'}
                     </span>
                 </td>
                 <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button onclick="admin.openEditStudentModal(${s.id}, '${s.name.replace(/'/g, "\\'") }', '${s.roll_no}', '${s.class_name.replace(/'/g, "\\'") }', '${s.parent_email}')" class="btn btn-outline btn-sm">
+                    <button onclick="admin.openEditStudentModal(${s.id}, '${s.name.replace(/'/g, "\\'") }', '${s.roll_no}', '${s.class_name.replace(/'/g, "\\'") }', '${mobileNum}')" class="btn btn-outline btn-sm">
                         <i class="fa-solid fa-pen-to-square"></i> Edit
-                    </button>
-                    <button onclick="webcam.openCaptureModalForStudent(${s.id}, '${s.name.replace(/'/g, "\\'") }')" class="btn btn-primary btn-sm">
-                        <i class="fa-solid fa-camera"></i> Photo
                     </button>
                     <button onclick="admin.deleteStudent(${s.id})" class="btn btn-danger btn-sm">
                         <i class="fa-solid fa-trash"></i> Delete
@@ -300,12 +507,12 @@ const admin = {
     },
 
     // ---- Edit Student Modal ----
-    openEditStudentModal(id, name, rollNo, className, parentEmail) {
+    openEditStudentModal(id, name, rollNo, className, parentPhone) {
         document.getElementById('editStudentId').value = id;
         document.getElementById('editStName').value = name;
         document.getElementById('editStRollNo').value = rollNo;
         document.getElementById('editStClassName').value = className;
-        document.getElementById('editStParentEmail').value = parentEmail;
+        document.getElementById('editStParentPhone').value = parentPhone;
         document.getElementById('editStudentModal').classList.add('active');
     },
 
@@ -319,7 +526,7 @@ const admin = {
         const name = document.getElementById('editStName').value.trim();
         const roll_no = document.getElementById('editStRollNo').value.trim();
         const class_name = document.getElementById('editStClassName').value.trim();
-        const parent_email = document.getElementById('editStParentEmail').value.trim();
+        const parent_phone = document.getElementById('editStParentPhone').value.trim();
 
         try {
             const res = await fetch(getApiUrl(`/api/students/${id}`), {
@@ -328,7 +535,7 @@ const admin = {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`
                 },
-                body: JSON.stringify({ name, roll_no, class_name, parent_email })
+                body: JSON.stringify({ name, roll_no, class_name, parent_phone })
             });
 
             const data = await res.json();
@@ -587,10 +794,10 @@ const admin = {
     },
 
     async finalizeSessionByAdmin(sessionId) {
-        if (!confirm("Finalize this session and dispatch automated parent absence emails?")) return;
+        if (!confirm("Finalize this session and dispatch automated parent absence SMS notifications?")) return;
 
         try {
-            const res = await fetch(getApiUrl(`/api/sessions/${sessionId}/complete`), {
+            const res = await fetch(getApiUrl(`/api/sessions/${sessionId}/finalize`), {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${auth.token}` }
             });
@@ -630,7 +837,7 @@ const admin = {
 
         sessions.forEach(s => {
             const tr = document.createElement('tr');
-            const isCompleted = s.status === 'COMPLETED';
+            const isFinalized = s.status === 'FINALIZED' || s.status === 'COMPLETED';
 
             tr.innerHTML = `
                 <td><strong>${s.session_title}</strong></td>
@@ -639,12 +846,12 @@ const admin = {
                 <td>${s.created_at}</td>
                 <td><strong>${s.present_count}</strong> / ${s.total_students}</td>
                 <td style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
-                    ${!isCompleted ? `
+                    ${!isFinalized ? `
                         <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm">
-                            <i class="fa-solid fa-circle-check"></i> Finalize Session
+                            <i class="fa-solid fa-circle-check"></i> Finalize Attendance
                         </button>
                     ` : `
-                        <span class="badge-status badge-present">✓ COMPLETED</span>
+                        <span class="badge-status badge-present">✓ FINALIZED</span>
                     `}
                     <a href="/api/export/excel/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" onclick="teacher.downloadReport(event, ${s.id}, 'excel')">
                         <i class="fa-solid fa-file-excel"></i> Excel
@@ -656,5 +863,132 @@ const admin = {
             `;
             tbody.appendChild(tr);
         });
+    },
+
+    async loadEmailSettings() {
+        try {
+            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (data.success && data.settings) {
+                const s = data.settings;
+                const emailInput = document.getElementById('gmailEmailInput');
+                const passInput = document.getElementById('gmailAppPasswordInput');
+                const enableCheck = document.getElementById('enableEmailCheck');
+
+                if (emailInput) emailInput.value = s.gmail_email || '';
+                if (passInput) passInput.value = s.gmail_app_password_masked || s.gmail_app_password || '';
+                if (enableCheck) enableCheck.checked = s.enable_email_alerts !== false;
+            }
+        } catch (err) {
+            console.error("Error loading Email settings:", err);
+        }
+    },
+
+    async handleSaveEmailSettings(e) {
+        if (e) e.preventDefault();
+        const gmail_email = document.getElementById('gmailEmailInput').value.trim();
+        const gmail_app_password = document.getElementById('gmailAppPasswordInput').value.trim();
+        const enable_email_alerts = document.getElementById('enableEmailCheck').checked;
+
+        try {
+            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`
+                },
+                body: JSON.stringify({
+                    enable_email_alerts,
+                    gmail_email,
+                    gmail_app_password
+                })
+            });
+
+            const data = await res.json();
+            alert(data.message);
+            if (data.success) {
+                this.loadEmailSettings();
+            }
+        } catch (err) {
+            alert("Failed to save Email settings.");
+        }
+    },
+
+    async loadEmailLogs() {
+        const tbody = document.getElementById('adminEmailLogsTableBody');
+        if (!tbody) return;
+
+        try {
+            const res = await fetch(getApiUrl('/api/admin/email_logs'), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                tbody.innerHTML = '';
+                const logs = data.logs || [];
+                if (logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No parent email notification records found.</td></tr>';
+                    return;
+                }
+
+                logs.forEach(l => {
+                    const tr = document.createElement('tr');
+                    const isSuccess = l.status === 'SENT' || l.status === 'SIMULATED';
+                    const badgeClass = isSuccess ? 'badge-present' : 'badge-absent';
+
+                    tr.innerHTML = `
+                        <td><strong>${l.student_name}</strong></td>
+                        <td>${l.roll_no}</td>
+                        <td><code>${l.parent_email_masked || l.parent_email}</code></td>
+                        <td><span style="color: var(--neon-cyan);">${l.session_title}</span> — ${l.subject}</td>
+                        <td><span class="badge-status ${badgeClass}">${l.status}</span></td>
+                        <td style="font-size: 0.82rem; color: var(--text-muted);">${l.timestamp}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        } catch (err) {
+            console.error("Error loading email logs:", err);
+        }
+    },
+
+    openTestEmailModal() {
+        const modal = document.getElementById('testEmailModal');
+        if (modal) modal.classList.add('active');
+    },
+
+    closeTestEmailModal() {
+        const modal = document.getElementById('testEmailModal');
+        if (modal) modal.classList.remove('active');
+    },
+
+    async handleSendTestEmail(e) {
+        if (e) e.preventDefault();
+        const targetEmail = document.getElementById('testEmailTargetInput').value.trim();
+        if (!targetEmail) {
+            alert('Please enter a target email address.');
+            return;
+        }
+
+        try {
+            const res = await fetch(getApiUrl('/api/admin/settings/test_email'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`
+                },
+                body: JSON.stringify({ email: targetEmail })
+            });
+            const data = await res.json();
+            alert(data.message);
+            if (data.success) {
+                this.closeTestEmailModal();
+                this.loadEmailLogs();
+            }
+        } catch (err) {
+            alert("Error sending test email.");
+        }
     }
 };

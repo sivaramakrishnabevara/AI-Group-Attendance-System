@@ -5,17 +5,18 @@ import jwt
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, Response
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 import cv2
 import numpy as np
 
 from config import Config
-from models import db, User, Student, AttendanceSession, AttendanceRecord, UndetectedFace, SystemSetting
+from models import db, User, Student, AttendanceSession, AttendanceRecord, UndetectedFace, SystemSetting, SMSLog, EmailLog
 from database import init_db
 from face_engine import face_engine
-from email_service import send_parent_absent_email
+from sms_service import send_parent_absent_sms, send_test_sms, get_sms_config, normalize_indian_mobile
+from email_service import send_parent_absent_email, send_test_email, get_email_config, validate_email_address
 from exporter import export_attendance_to_excel, export_attendance_to_pdf
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -84,6 +85,58 @@ def index():
 
 @app.route('/dataset/<path:filename>')
 def serve_dataset(filename):
+    full_path = os.path.join(Config.DATA_DIR, 'dataset', filename)
+    if os.path.exists(full_path):
+        return send_from_directory(os.path.join(Config.DATA_DIR, 'dataset'), filename)
+    
+    # Persistent fallback if image file is missing from ephemeral Render container
+    rel_path = f"dataset/{filename}"
+    b64_data = None
+
+    if filename.startswith('students/'):
+        # Extract roll_no or filename search
+        parts = filename.split('/')
+        st = None
+        if len(parts) >= 2:
+            st = Student.query.filter(Student.roll_no == parts[1]).first()
+        if not st:
+            st = Student.query.filter((Student.face_image_path == rel_path) | (Student.face_image_path.endswith(filename))).first()
+        if st and st.face_image_b64:
+            try:
+                parsed = json.loads(st.face_image_b64)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    idx = 0
+                    if parts[-1].endswith('.jpg'):
+                        num_part = parts[-1].replace('.jpg', '')
+                        if num_part.isdigit():
+                            idx = min(len(parsed) - 1, max(0, int(num_part) - 1))
+                    b64_data = parsed[idx]
+                elif isinstance(parsed, str):
+                    b64_data = parsed
+            except Exception:
+                b64_data = st.face_image_b64
+    elif filename.startswith('unknown_faces/') or filename.startswith('undetected_faces/'):
+        uf = UndetectedFace.query.filter((UndetectedFace.image_path == rel_path) | (UndetectedFace.image_path.endswith(filename))).first()
+        if uf and uf.image_b64:
+            b64_data = uf.image_b64
+    elif filename.startswith('session_snapshots/'):
+        ar = AttendanceRecord.query.filter((AttendanceRecord.snapshot_path == rel_path) | (AttendanceRecord.snapshot_path.endswith(filename))).first()
+        if ar and ar.snapshot_b64:
+            b64_data = ar.snapshot_b64
+
+    if b64_data:
+        try:
+            if ',' in b64_data:
+                b64_data = b64_data.split(',')[1]
+            img_bytes = base64.b64decode(b64_data)
+            # Re-create file on ephemeral disk for subsequent reads
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, 'wb') as f:
+                f.write(img_bytes)
+            return Response(img_bytes, mimetype='image/jpeg')
+        except Exception:
+            pass
+
     return send_from_directory(os.path.join(Config.DATA_DIR, 'dataset'), filename)
 
 # -------------------------------------------------------------------
@@ -227,20 +280,81 @@ def get_students(current_user):
 @token_required
 def add_student(current_user):
     """
-    Creates a student and extracts face encoding from live captured photo frame.
-    Req 5: If add student after filled details, capture face to store student data in separate folder.
+    Creates a student and extracts face encodings from captured photo frames.
+    Supports EXACTLY 5 face images stored under dataset/students/<ROLL_NUMBER>/01.jpg ... 05.jpg.
+    Validates required Parent Mobile Number and single face detection per photo.
     """
     data = request.get_json() or {}
     name = data.get('name', '').strip()
     roll_no = data.get('roll_no', '').strip()
     class_name = data.get('class_name', '').strip()
+    parent_phone = (data.get('parent_mobile_number') or data.get('parent_phone') or '').strip()
     parent_email = data.get('parent_email', '').strip()
-    parent_phone = data.get('parent_phone', '')
     student_code = data.get('student_code', '').strip()
-    face_image_b64 = data.get('face_image')
+    
+    face_images = data.get('face_images') # List of 5 base64 images
+    single_face_image = data.get('face_image') # Single base64 image fallback
 
-    if not all([name, roll_no, class_name, parent_email]):
-        return jsonify({'success': False, 'message': 'Full Name, Roll Number, Class Name, and Parent Email are required'}), 400
+    if not all([name, roll_no, class_name, parent_phone, parent_email]):
+        return jsonify({'success': False, 'message': 'Student Name, Roll Number, Class Name, Parent Mobile Number, and Parent Email are required'}), 400
+
+    if not validate_email_address(parent_email):
+        return jsonify({'success': False, 'message': 'Please enter a valid Parent Email address (e.g. parent@example.com)'}), 400
+
+    is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
+    if not is_valid_phone:
+        return jsonify({'success': False, 'message': 'Please enter a valid Parent Mobile Number'}), 400
+
+    if not face_images and not single_face_image:
+        return jsonify({'success': False, 'message': 'Face photo capture (5 images) is required to complete student registration'}), 400
+
+    image_list = face_images if (isinstance(face_images, list) and len(face_images) > 0) else [single_face_image]
+
+    # Clean roll number for folder naming
+    clean_roll = "".join(c for c in roll_no if c.isalnum() or c in ('-', '_')).strip() or f"roll_{roll_no}"
+    student_dir = os.path.join(Config.STUDENT_DATASET_DIR, clean_roll)
+    os.makedirs(student_dir, exist_ok=True)
+
+    extracted_vectors = []
+    saved_paths = []
+    b64_list = []
+
+    for idx, b64_img in enumerate(image_list):
+        if not b64_img:
+            continue
+        img_np = base64_to_cv2(b64_img)
+        if img_np is None:
+            return jsonify({'success': False, 'message': f'Invalid face photo format for image #{idx + 1}'}), 400
+
+        faces = face_engine.detect_faces(img_np)
+        if len(faces) == 0:
+            return jsonify({'success': False, 'message': f'Face not detected in image #{idx + 1}. Please look directly at the camera.'}), 400
+        if len(faces) > 1:
+            return jsonify({'success': False, 'message': f'Multiple faces detected in image #{idx + 1}. Only one student should be in the camera.'}), 400
+
+        encoding = face_engine.extract_encoding(img_np, faces[0])
+        if not encoding:
+            return jsonify({'success': False, 'message': f'Could not extract face embedding for image #{idx + 1}. Please retake with clear lighting.'}), 400
+
+        extracted_vectors.append(encoding)
+        b64_list.append(b64_img)
+
+        filename = f"{idx + 1:02d}.jpg"
+        file_path = os.path.join(student_dir, filename)
+        cv2.imwrite(file_path, img_np)
+        rel_path = f"dataset/students/{clean_roll}/{filename}"
+        saved_paths.append(rel_path)
+
+    if len(extracted_vectors) == 0:
+        return jsonify({'success': False, 'message': 'Failed to extract face encodings from images.'}), 400
+
+    encoding_json = json.dumps({
+        'version': face_engine.MODEL_VERSION,
+        'vectors': extracted_vectors,
+        'vector': extracted_vectors[0]
+    })
+
+    face_b64_storage = json.dumps(b64_list) if len(b64_list) > 1 else b64_list[0]
 
     if not student_code:
         student_code = f"STU-{roll_no}"
@@ -252,35 +366,17 @@ def add_student(current_user):
     elif Student.query.filter_by(student_code=student_code).first():
         return jsonify({'success': False, 'message': 'Student Code already registered'}), 400
 
-    encoding_json = None
-    face_rel_path = None
-
-    if face_image_b64:
-        img_np = base64_to_cv2(face_image_b64)
-        if img_np is not None:
-            faces = face_engine.detect_faces(img_np)
-            f_box = faces[0] if len(faces) > 0 else None
-            encoding = face_engine.extract_encoding(img_np, f_box)
-            if encoding:
-                encoding_json = json.dumps({
-                    'version': face_engine.MODEL_VERSION,
-                    'vector': encoding
-                })
-
-            # Save face image crop in dataset/students/
-            filename = f"student_{student_code}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-            save_path = os.path.join(Config.STUDENT_DATASET_DIR, filename)
-            cv2.imwrite(save_path, img_np)
-            face_rel_path = f"dataset/students/{filename}"
+    primary_rel_path = saved_paths[0] if saved_paths else f"dataset/students/{clean_roll}/01.jpg"
 
     student = Student(
         student_code=student_code,
         name=name,
         roll_no=roll_no,
         class_name=class_name,
-        parent_email=parent_email,
-        parent_phone=parent_phone,
-        face_image_path=face_rel_path,
+        parent_email=parent_email or f"{roll_no.lower()}@student.local",
+        parent_phone=norm_phone,
+        face_image_path=primary_rel_path,
+        face_image_b64=face_b64_storage,
         encoding_json=encoding_json
     )
     db.session.add(student)
@@ -288,8 +384,40 @@ def add_student(current_user):
 
     return jsonify({
         'success': True,
-        'message': 'Student registered successfully' + (' with face encoding' if encoding_json else ' (No face detected in photo)'),
+        'message': f'Student registered successfully with {len(extracted_vectors)} face photo encodings.',
         'student': student.to_dict()
+    })
+
+@app.route('/api/detect_face_check', methods=['POST'])
+@token_required
+def detect_face_check(current_user):
+    """
+    Validates face detection for a single captured photo during the 5-photo registration flow.
+    Returns count: 0 (No face), 1 (Valid face), >= 2 (Multiple faces).
+    """
+    data = request.get_json() or {}
+    b64_img = data.get('image')
+    if not b64_img:
+        return jsonify({'success': False, 'message': 'No image provided'}), 400
+
+    img_np = base64_to_cv2(b64_img)
+    if img_np is None:
+        return jsonify({'success': False, 'message': 'Invalid image format'}), 400
+
+    faces = face_engine.detect_faces(img_np)
+    count = len(faces)
+
+    if count == 0:
+        msg = 'Face not detected. Please try again.'
+    elif count > 1:
+        msg = 'Multiple faces detected. Only one student should be in the camera.'
+    else:
+        msg = 'Face detected successfully.'
+
+    return jsonify({
+        'success': True,
+        'count': count,
+        'message': msg
     })
 
 @app.route('/api/students/<int:student_id>', methods=['DELETE'])
@@ -297,13 +425,12 @@ def add_student(current_user):
 @admin_only
 def delete_student(current_user, student_id):
     """
-    Req 3: Admin can delete student.
+    Admin can delete student.
     """
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'success': False, 'message': 'Student not found'}), 404
 
-    # Remove face image file if exists
     if student.face_image_path:
         full_p = os.path.join(Config.DATA_DIR, student.face_image_path)
         if os.path.exists(full_p):
@@ -312,7 +439,6 @@ def delete_student(current_user, student_id):
             except Exception:
                 pass
 
-    # Cleanly delete associated attendance records and reset undetected face claims
     AttendanceRecord.query.filter_by(student_id=student_id).delete()
     UndetectedFace.query.filter_by(claimed_student_id=student_id).update({
         'claimed_student_id': None,
@@ -327,7 +453,7 @@ def delete_student(current_user, student_id):
 @token_required
 @admin_only
 def update_student(current_user, student_id):
-    """Admin can edit student details: name, roll_no, class_name, parent_email, student_code."""
+    """Admin can edit student details: name, roll_no, class_name, parent_phone, student_code."""
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'success': False, 'message': 'Student not found'}), 404
@@ -337,10 +463,15 @@ def update_student(current_user, student_id):
     name = data.get('name', '').strip()
     roll_no = data.get('roll_no', '').strip()
     class_name = data.get('class_name', '').strip()
+    parent_phone = (data.get('parent_mobile_number') or data.get('parent_phone') or '').strip()
     parent_email = data.get('parent_email', '').strip()
 
-    if not all([name, roll_no, class_name, parent_email]):
-        return jsonify({'success': False, 'message': 'Name, Roll Number, Class Name, and Parent Email are required'}), 400
+    if not all([name, roll_no, class_name, parent_phone]):
+        return jsonify({'success': False, 'message': 'Name, Roll Number, Class Name, and Parent Mobile Number are required'}), 400
+
+    is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
+    if not is_valid_phone:
+        return jsonify({'success': False, 'message': 'Please enter a valid Parent Mobile Number'}), 400
 
     if student_code:
         existing = Student.query.filter(Student.student_code == student_code, Student.id != student_id).first()
@@ -351,7 +482,9 @@ def update_student(current_user, student_id):
     student.name = name
     student.roll_no = roll_no
     student.class_name = class_name
-    student.parent_email = parent_email
+    student.parent_phone = norm_phone
+    if parent_email:
+        student.parent_email = parent_email
 
     db.session.commit()
     return jsonify({'success': True, 'message': 'Student updated successfully', 'student': student.to_dict()})
@@ -401,6 +534,7 @@ def update_student_face(current_user, student_id):
     cv2.imwrite(save_path, img_np)
 
     student.face_image_path = f"dataset/students/{filename}"
+    student.face_image_b64 = face_image_b64
     student.encoding_json = encoding_json
 
     db.session.commit()
@@ -481,37 +615,41 @@ def process_webcam_frame(current_user, session_id):
 
     class_students = Student.query.filter_by(class_name=session.class_name).all()
 
-    # Automatically re-encode student face images stored in dataset/students/ if needed
+    # Automatically re-encode student face images if needed (supporting DB base64 fallback)
     for st in class_students:
-        if st.face_image_path:
-            full_p = os.path.join(Config.DATA_DIR, st.face_image_path)
-            if os.path.exists(full_p):
-                needs_update = False
-                if not st.encoding_json:
-                    needs_update = True
-                else:
-                    try:
-                        enc = json.loads(st.encoding_json)
-                        if isinstance(enc, dict):
-                            if enc.get('version') != face_engine.MODEL_VERSION:
-                                needs_update = True
-                        else:
-                            needs_update = True
-                    except Exception:
+        needs_update = False
+        if not st.encoding_json:
+            needs_update = True
+        else:
+            try:
+                enc = json.loads(st.encoding_json)
+                if isinstance(enc, dict):
+                    if enc.get('version') != face_engine.MODEL_VERSION:
                         needs_update = True
+                else:
+                    needs_update = True
+            except Exception:
+                needs_update = True
 
-                if needs_update:
+        if needs_update:
+            st_img = None
+            if st.face_image_path:
+                full_p = os.path.join(Config.DATA_DIR, st.face_image_path)
+                if os.path.exists(full_p):
                     st_img = cv2.imread(full_p)
-                    if st_img is not None:
-                        faces = face_engine.detect_faces(st_img)
-                        f_box = faces[0] if len(faces) > 0 else None
-                        enc_new = face_engine.extract_encoding(st_img, f_box)
-                        if enc_new:
-                            st.encoding_json = json.dumps({
-                                'version': face_engine.MODEL_VERSION,
-                                'vector': enc_new
-                            })
-                            db.session.commit()
+            if st_img is None and st.face_image_b64:
+                st_img = base64_to_cv2(st.face_image_b64)
+
+            if st_img is not None:
+                faces = face_engine.detect_faces(st_img)
+                f_box = faces[0] if len(faces) > 0 else None
+                enc_new = face_engine.extract_encoding(st_img, f_box)
+                if enc_new:
+                    st.encoding_json = json.dumps({
+                        'version': face_engine.MODEL_VERSION,
+                        'vector': enc_new
+                    })
+                    db.session.commit()
     
     stamped_img, recognized, undetected = face_engine.process_live_frame(
         img_np, class_students, session_id, Config.UNDETECTED_FACES_DIR
@@ -537,6 +675,7 @@ def process_webcam_frame(current_user, session_id):
             rec.marking_method = 'AI_FACE_RECOGNITION'
             rec.approval_status = 'APPROVED'
             rec.snapshot_path = snapshot_rel_path
+            rec.snapshot_b64 = processed_b64
             rec.timestamp = datetime.now()
             newly_marked_present.append(match['student_name'])
 
@@ -545,6 +684,7 @@ def process_webcam_frame(current_user, session_id):
         u_face = UndetectedFace(
             session_id=session.id,
             image_path=u['image_path'],
+            image_b64=u.get('image_b64'),
             status='UNCLAIMED'
         )
         db.session.add(u_face)
@@ -560,309 +700,374 @@ def process_webcam_frame(current_user, session_id):
         'undetected_count': len(undetected)
     })
 
-@app.route('/api/sessions/<int:session_id>/complete', methods=['POST'])
+@app.route('/api/sessions/<int:session_id>/submit_approval', methods=['POST'])
 @token_required
-@admin_only
-def complete_session(current_user, session_id):
+def submit_session_approval(current_user, session_id):
     """
-    Req 6: When attendance session ends, send parent email for all ABSENT students.
+    Req 14: Teacher submits live attendance session for Admin approval.
+    Status becomes SUBMITTED_FOR_APPROVAL.
     """
     session = AttendanceSession.query.get(session_id)
     if not session:
         return jsonify({'success': False, 'message': 'Session not found'}), 404
 
-    session.status = 'COMPLETED'
+    session.status = 'SUBMITTED_FOR_APPROVAL'
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Attendance session submitted for Admin approval.',
+        'session': session.to_dict()
+    })
+
+@app.route('/api/sessions/<int:session_id>/complete', methods=['POST'])
+@app.route('/api/sessions/<int:session_id>/finalize', methods=['POST'])
+@token_required
+def finalize_session_by_admin(current_user, session_id):
+    """
+    Req 14, 15, 16: Admin finalizes attendance.
+    1. Computes absent students (all registered class students not marked PRESENT).
+    2. Updates status to FINALIZED.
+    3. Sends ONE parent absence SMS per absent student.
+    """
+    session = AttendanceSession.query.get(session_id)
+    if not session:
+        return jsonify({'success': False, 'message': 'Session not found'}), 404
+
+    # Enforce Admin privilege for permanent finalization if required
+    if current_user.role != 'ADMIN' and session.status == 'SUBMITTED_FOR_APPROVAL':
+        return jsonify({'success': False, 'message': 'Admin approval is required to finalize this session'}), 403
+
+    # Calculate absent students for class
+    class_students = Student.query.filter_by(class_name=session.class_name).all()
+    present_student_ids = set()
+
+    for rec in session.records:
+        if rec.status == 'PRESENT' and rec.approval_status == 'APPROVED':
+            present_student_ids.add(rec.student_id)
+
+    # Mark all missing registered students as ABSENT
+    for st in class_students:
+        rec = AttendanceRecord.query.filter_by(session_id=session.id, student_id=st.id).first()
+        if not rec:
+            rec = AttendanceRecord(
+                session_id=session.id,
+                student_id=st.id,
+                status='ABSENT',
+                marking_method='AI_FACE_RECOGNITION',
+                approval_status='APPROVED'
+            )
+            db.session.add(rec)
+        elif rec.student_id not in present_student_ids:
+            rec.status = 'ABSENT'
+            rec.approval_status = 'APPROVED'
+
+    session.status = 'FINALIZED'
     session.completed_at = datetime.now()
     db.session.commit()
 
-    # Find absent records where email has not been sent yet
+    # Dispatch parent absence SMS ONLY after Admin finalization
     absent_records = AttendanceRecord.query.filter_by(
         session_id=session.id,
         status='ABSENT',
         email_sent=False
     ).all()
 
-    emails_dispatched = 0
-    date_str = session.completed_at.strftime('%d %b %Y, %I:%M %p')
-    email_logs = []
+    email_dispatched = 0
+    date_str = session.completed_at.strftime('%d-%b-%Y')
+    email_logs_res = []
 
     for r in absent_records:
-        if r.student and r.student.parent_email:
+        parent_email = r.student.parent_email if r.student else None
+        if r.student and parent_email:
             success, msg = send_parent_absent_email(
-                parent_email=r.student.parent_email,
+                parent_email=parent_email,
                 student_name=r.student.name,
                 roll_no=r.student.roll_no,
                 class_name=session.class_name,
                 date_str=date_str,
                 teacher_name=session.created_by_teacher_name,
-                student_code=r.student.student_code,
-                session_title=session.session_title
+                session_title=session.session_title,
+                session_id=session.id,
+                student_id=r.student_id
             )
-            email_logs.append({
+            email_logs_res.append({
                 'student_name': r.student.name,
-                'parent_email': r.student.parent_email,
+                'parent_email': parent_email,
                 'success': success,
                 'message': msg
             })
             if success:
                 r.email_sent = True
                 r.email_sent_at = datetime.now()
-                emails_dispatched += 1
+                email_dispatched += 1
 
     db.session.commit()
 
-    if emails_dispatched > 0:
-        res_msg = f"Attendance finalized! Successfully delivered {emails_dispatched} parent absence email alerts via SMTP."
+    if email_dispatched > 0:
+        res_msg = f"Attendance finalized! Successfully sent {email_dispatched} parent absence email notifications."
     elif len(absent_records) == 0:
-        res_msg = "Attendance finalized! No absent students in this session."
+        res_msg = "Attendance finalized! All registered students were present."
     else:
-        first_err = email_logs[0]['message'] if email_logs else "Email configuration issue."
-        res_msg = f"Attendance finalized, BUT emails were NOT delivered. Reason: {first_err}"
+        first_info = email_logs_res[0]['message'] if email_logs_res else "Gmail SMTP service is not configured."
+        res_msg = f"Attendance finalized. Parent Email status: {first_info}"
 
     return jsonify({
         'success': True,
         'message': res_msg,
-        'emails_dispatched': emails_dispatched,
-        'email_logs': email_logs,
+        'email_dispatched': email_dispatched,
+        'email_logs': email_logs_res,
         'session': session.to_dict()
     })
 
 # -------------------------------------------------------------------
-# Undetected Face Claim & Teacher Manual Attendance (Req 9, 12, 13)
+# Unknown Faces & Teacher Assignment / Admin Approval Routes
 # -------------------------------------------------------------------
-@app.route('/api/undetected', methods=['GET'])
+@app.route('/api/unknown_faces', methods=['GET'])
 @app.route('/api/undetected/<int:session_id>', methods=['GET'])
 @token_required
-def get_undetected_faces(current_user, session_id=None):
-    """
-    Req 9: Teacher can view undetected faces stored for a session or across all sessions.
-    """
+def get_unknown_faces(current_user, session_id=None):
+    query = UndetectedFace.query
     if session_id:
-        u_faces = UndetectedFace.query.filter_by(session_id=session_id).order_by(UndetectedFace.timestamp.desc()).all()
-    else:
-        u_faces = UndetectedFace.query.order_by(UndetectedFace.timestamp.desc()).all()
-
+        query = query.filter_by(session_id=session_id)
+    faces = query.order_by(UndetectedFace.timestamp.desc()).all()
     return jsonify({
         'success': True,
-        'undetected_faces': [u.to_dict() for u in u_faces]
+        'unknown_faces': [f.to_dict() for f in faces],
+        'undetected_faces': [f.to_dict() for f in faces]
     })
 
-@app.route('/api/undetected/claim', methods=['POST'])
+@app.route('/api/teacher/assign_unknown_face', methods=['POST'])
 @token_required
-def claim_undetected_face(current_user):
+def teacher_assign_unknown_face(current_user):
     """
-    Req 9, 12, 13:
-    - Teacher manually maps an undetected face snapshot to a student.
-    - Records teacher's name.
-    - Status set to PENDING_ADMIN for Admin approval workflow.
+    Req 12: Teacher manually assigns unknown face image to a student.
+    Status becomes 'Pending Admin Approval' (PENDING_ADMIN).
     """
     data = request.get_json() or {}
-    undetected_id = data.get('undetected_id')
+    undetected_id = data.get('undetected_id') or data.get('unknown_face_id')
     student_id = data.get('student_id')
 
     if not undetected_id or not student_id:
-        return jsonify({'success': False, 'message': 'Undetected face ID and Student ID are required'}), 400
+        return jsonify({'success': False, 'message': 'Unknown face ID and Student ID are required'}), 400
 
     u_face = UndetectedFace.query.get(undetected_id)
     student = Student.query.get(student_id)
 
     if not u_face or not student:
-        return jsonify({'success': False, 'message': 'Undetected face or student not found'}), 404
+        return jsonify({'success': False, 'message': 'Unknown face crop or Student record not found'}), 404
 
-    # Update UndetectedFace record
-    u_face.status = 'CLAIMED_PENDING'
     u_face.claimed_student_id = student.id
     u_face.claimed_by_teacher_name = current_user.full_name
+    u_face.status = 'PENDING_ADMIN'
 
-    # Create/Update AttendanceRecord as MANUAL_TEACHER with PENDING_ADMIN status
+    # Create/update attendance record in PENDING_ADMIN state
     rec = AttendanceRecord.query.filter_by(session_id=u_face.session_id, student_id=student.id).first()
     if not rec:
-        rec = AttendanceRecord(session_id=u_face.session_id, student_id=student.id)
-
-    rec.status = 'PRESENT'
-    rec.marking_method = 'MANUAL_TEACHER'
-    rec.marked_by_teacher_name = current_user.full_name
-    rec.approval_status = 'PENDING_ADMIN'
-    rec.snapshot_path = u_face.image_path
-
-    db.session.add(rec)
-    db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'message': f'Manual attendance submitted for {student.name}. Request sent to Admin for approval.',
-        'record': rec.to_dict()
-    })
-
-# -------------------------------------------------------------------
-# Admin Approval Workflow Routes (Req 13)
-# -------------------------------------------------------------------
-@app.route('/api/admin/approvals', methods=['GET'])
-@token_required
-@admin_only
-def get_pending_approvals(current_user):
-    """
-    Req 13: Admin views list of teacher manual attendance requests requiring approval.
-    """
-    pending_records = AttendanceRecord.query.filter_by(
-        approval_status='PENDING_ADMIN'
-    ).order_by(AttendanceRecord.timestamp.desc()).all()
-
-    return jsonify({
-        'success': True,
-        'pending_approvals': [r.to_dict() for r in pending_records]
-    })
-
-@app.route('/api/admin/approvals/<int:record_id>/action', methods=['POST'])
-@token_required
-@admin_only
-def handle_approval_action(current_user, record_id):
-    """
-    Req 13: Admin presses OK -> Approved (Marked PRESENT), otherwise REJECTED (Marked ABSENT).
-    """
-    data = request.get_json() or {}
-    action = data.get('action') # 'APPROVE' or 'REJECT'
-
-    rec = AttendanceRecord.query.get(record_id)
-    if not rec:
-        return jsonify({'success': False, 'message': 'Attendance record not found'}), 404
-
-    if action == 'APPROVE':
-        rec.approval_status = 'APPROVED'
-        rec.status = 'PRESENT'
-        msg = f"Manual attendance for {rec.student.name} APPROVED (Marked PRESENT)."
+        rec = AttendanceRecord(
+            session_id=u_face.session_id,
+            student_id=student.id,
+            status='PRESENT',
+            marking_method='MANUAL_TEACHER',
+            marked_by_teacher_name=current_user.full_name,
+            approval_status='PENDING_ADMIN',
+            snapshot_path=u_face.image_path,
+            snapshot_b64=u_face.image_b64
+        )
+        db.session.add(rec)
     else:
-        rec.approval_status = 'REJECTED'
-        rec.status = 'ABSENT'
-        msg = f"Manual attendance for {rec.student.name} REJECTED (Marked ABSENT)."
-
-    # Update associated UndetectedFace status if exists
-    if rec.snapshot_path:
-        u_face = UndetectedFace.query.filter_by(image_path=rec.snapshot_path).first()
-        if u_face:
-            u_face.status = 'APPROVED' if action == 'APPROVE' else 'REJECTED'
-
-    u_faces = UndetectedFace.query.filter_by(session_id=rec.session_id, claimed_student_id=rec.student_id).all()
-    for uf in u_faces:
-        uf.status = 'APPROVED' if action == 'APPROVE' else 'REJECTED'
+        rec.status = 'PRESENT'
+        rec.marking_method = 'MANUAL_TEACHER'
+        rec.marked_by_teacher_name = current_user.full_name
+        rec.approval_status = 'PENDING_ADMIN'
+        rec.snapshot_path = u_face.image_path
+        rec.snapshot_b64 = u_face.image_b64
 
     db.session.commit()
-    return jsonify({'success': True, 'message': msg, 'record': rec.to_dict()})
 
+    return jsonify({
+        'success': True,
+        'message': f'Assigned unknown face to {student.name}. Submitted for Admin approval (Pending Admin Approval).',
+        'unknown_face': u_face.to_dict()
+    })
+
+@app.route('/api/admin/unknown_faces/<int:undetected_id>/action', methods=['POST'])
 @app.route('/api/admin/undetected/<int:undetected_id>/action', methods=['POST'])
 @token_required
 @admin_only
-def handle_undetected_claim_action(current_user, undetected_id):
+def admin_unknown_face_action(current_user, undetected_id):
     """
-    Req 13: Admin approves or rejects a teacher manual face claim directly by undetected_id.
+    Req 13: Admin approves or rejects teacher unknown-face assignment.
     """
     data = request.get_json() or {}
-    action = data.get('action') # 'APPROVE' or 'REJECT'
+    action = (data.get('action') or '').upper()
+
+    if action not in ('APPROVE', 'REJECT'):
+        return jsonify({'success': False, 'message': 'Action must be APPROVE or REJECT'}), 400
 
     u_face = UndetectedFace.query.get(undetected_id)
     if not u_face:
-        return jsonify({'success': False, 'message': 'Undetected face claim record not found'}), 404
+        return jsonify({'success': False, 'message': 'Unknown face record not found'}), 404
 
-    u_face.status = 'APPROVED' if action == 'APPROVE' else 'REJECTED'
-
-    # Find associated AttendanceRecord
-    rec = None
-    if u_face.claimed_student_id:
-        rec = AttendanceRecord.query.filter_by(
-            session_id=u_face.session_id,
-            student_id=u_face.claimed_student_id
-        ).first()
-
-    if not rec and u_face.image_path:
-        rec = AttendanceRecord.query.filter_by(
-            session_id=u_face.session_id,
-            snapshot_path=u_face.image_path
-        ).first()
-
-    if rec:
-        if action == 'APPROVE':
-            rec.approval_status = 'APPROVED'
-            rec.status = 'PRESENT'
-        else:
-            rec.approval_status = 'REJECTED'
-            rec.status = 'ABSENT'
+    if action == 'APPROVE':
+        u_face.status = 'APPROVED'
+        if u_face.claimed_student_id:
+            rec = AttendanceRecord.query.filter_by(session_id=u_face.session_id, student_id=u_face.claimed_student_id).first()
+            if rec:
+                rec.status = 'PRESENT'
+                rec.approval_status = 'APPROVED'
+        msg = 'Unknown face assignment APPROVED. Attendance marked PRESENT.'
+    else:
+        u_face.status = 'REJECTED'
+        if u_face.claimed_student_id:
+            rec = AttendanceRecord.query.filter_by(session_id=u_face.session_id, student_id=u_face.claimed_student_id).first()
+            if rec:
+                rec.status = 'ABSENT'
+                rec.approval_status = 'REJECTED'
+        msg = 'Unknown face assignment REJECTED. Attendance not marked present.'
 
     db.session.commit()
 
-    student_name = u_face.claimed_student.name if u_face.claimed_student else 'Student'
-    status_str = 'APPROVED (Marked PRESENT)' if action == 'APPROVE' else 'REJECTED (Marked ABSENT)'
     return jsonify({
         'success': True,
-        'message': f"Claim for {student_name} {status_str}.",
-        'undetected_face': u_face.to_dict()
+        'message': msg,
+        'unknown_face': u_face.to_dict()
     })
 
 # -------------------------------------------------------------------
-# System Email Settings Routes (Admin & Teacher)
+# System SMS Settings Routes (Admin & Teacher)
 # -------------------------------------------------------------------
+@app.route('/api/admin/settings/sms', methods=['GET'])
+@token_required
+def get_sms_settings_route(current_user):
+    conf = get_sms_config()
+    return jsonify({'success': True, 'settings': conf})
+
+@app.route('/api/admin/settings/sms', methods=['POST'])
+@token_required
+def update_sms_settings_route(current_user):
+    data = request.get_json() or {}
+    sms_mode = data.get('sms_mode', 'SIMULATION').strip().upper()
+    sms_provider = data.get('sms_provider', 'GENERIC_HTTP').strip()
+    sms_api_key = data.get('sms_api_key', '').strip()
+    sms_api_secret = data.get('sms_api_secret', '').strip()
+    sms_sender_id = data.get('sms_sender_id', 'ATTNDS').strip()
+    sms_http_url = data.get('sms_http_url', '').strip()
+    sms_route = data.get('sms_route', 'q').strip()
+    sms_dlt_te_id = data.get('sms_dlt_te_id', '').strip()
+    sms_enabled = data.get('sms_enabled', True)
+
+    settings_map = {
+        'sms_mode': sms_mode,
+        'sms_provider': sms_provider,
+        'sms_api_key': sms_api_key,
+        'sms_api_secret': sms_api_secret,
+        'sms_sender_id': sms_sender_id,
+        'sms_http_url': sms_http_url,
+        'sms_route': sms_route,
+        'sms_dlt_te_id': sms_dlt_te_id,
+        'sms_enabled': 'true' if sms_enabled else 'false'
+    }
+
+    for key, val in settings_map.items():
+        if val is not None:
+            s_obj = SystemSetting.query.filter_by(key=key).first()
+            if not s_obj:
+                s_obj = SystemSetting(key=key)
+                db.session.add(s_obj)
+            s_obj.value = str(val)
+
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'SMS settings saved successfully.'})
+
+@app.route('/api/admin/sms_logs', methods=['GET'])
+@token_required
+def get_sms_logs_route(current_user):
+    if current_user.role != 'ADMIN':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    logs = SMSLog.query.order_by(SMSLog.timestamp.desc()).limit(200).all()
+    return jsonify({
+        'success': True,
+        'logs': [l.to_dict() for l in logs]
+    })
+
 @app.route('/api/admin/settings/email', methods=['GET'])
 @token_required
-def get_email_settings(current_user):
-    from email_service import get_smtp_config
-    conf = get_smtp_config()
+def get_email_settings_route(current_user):
+    conf = get_email_config()
     # Mask password for security
-    conf_masked = {
-        'smtp_email': conf['smtp_email'],
-        'has_password': bool(conf['smtp_password']),
-        'enable_real_email': conf['enable_real_email']
-    }
-    return jsonify({'success': True, 'settings': conf_masked})
+    conf_safe = dict(conf)
+    if conf_safe.get('gmail_app_password'):
+        conf_safe['gmail_app_password_masked'] = "••••••••••••••••"
+    return jsonify({'success': True, 'settings': conf_safe})
 
 @app.route('/api/admin/settings/email', methods=['POST'])
 @token_required
-def update_email_settings(current_user):
+def update_email_settings_route(current_user):
+    if current_user.role != 'ADMIN':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     data = request.get_json() or {}
-    smtp_email = data.get('smtp_email', '').strip()
-    smtp_password = data.get('smtp_password', '').strip()
-    enable_real = data.get('enable_real_email', False)
+    enable_email = data.get('enable_email_alerts', True)
+    gmail_email = data.get('gmail_email', '').strip()
+    gmail_app_password = data.get('gmail_app_password', '').strip()
 
-    if smtp_email:
-        s_email = SystemSetting.query.filter_by(key='smtp_email').first()
-        if not s_email:
-            s_email = SystemSetting(key='smtp_email')
-            db.session.add(s_email)
-        s_email.value = smtp_email
+    if gmail_email and not validate_email_address(gmail_email):
+        return jsonify({'success': False, 'message': 'Invalid Gmail email address syntax'}), 400
 
-    if smtp_password:
-        s_pass = SystemSetting.query.filter_by(key='smtp_password').first()
-        if not s_pass:
-            s_pass = SystemSetting(key='smtp_password')
-            db.session.add(s_pass)
-        s_pass.value = smtp_password
+    settings_map = {
+        'enable_email_alerts': 'true' if enable_email else 'false',
+        'gmail_email': gmail_email
+    }
+    # Only update password if non-empty
+    if gmail_app_password and gmail_app_password != "••••••••••••••••":
+        settings_map['gmail_app_password'] = gmail_app_password
 
-    s_enable = SystemSetting.query.filter_by(key='enable_real_email').first()
-    if not s_enable:
-        s_enable = SystemSetting(key='enable_real_email')
-        db.session.add(s_enable)
-    s_enable.value = 'true' if enable_real else 'false'
+    for key, val in settings_map.items():
+        s_obj = SystemSetting.query.filter_by(key=key).first()
+        if not s_obj:
+            s_obj = SystemSetting(key=key)
+            db.session.add(s_obj)
+        s_obj.value = str(val)
 
     db.session.commit()
-    return jsonify({'success': True, 'message': 'SMTP Email settings saved successfully.'})
+    return jsonify({'success': True, 'message': 'Gmail SMTP settings saved successfully.'})
+
+@app.route('/api/admin/email_logs', methods=['GET'])
+@token_required
+def get_email_logs_route(current_user):
+    if current_user.role != 'ADMIN':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    logs = EmailLog.query.order_by(EmailLog.timestamp.desc()).limit(200).all()
+    return jsonify({
+        'success': True,
+        'logs': [l.to_dict() for l in logs]
+    })
 
 @app.route('/api/admin/settings/test_email', methods=['POST'])
 @token_required
-def send_test_email(current_user):
+def send_test_email_route(current_user):
+    if current_user.role != 'ADMIN':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     data = request.get_json() or {}
-    target_email = data.get('target_email', current_user.email).strip()
-
+    target_email = (data.get('email') or data.get('target_email') or '').strip()
     if not target_email:
-        return jsonify({'success': False, 'message': 'Target email address required'}), 400
+        return jsonify({'success': False, 'message': 'Target email address is required'}), 400
+    if not validate_email_address(target_email):
+        return jsonify({'success': False, 'message': 'Invalid target email address format'}), 400
 
-    success, msg = send_parent_absent_email(
-        parent_email=target_email,
-        student_name="Test Student",
-        roll_no="TEST-001",
-        class_name="System Test Class",
-        date_str=datetime.now().strftime('%Y-%m-%d %H:%M'),
-        teacher_name=current_user.full_name,
-        force_test=True
-    )
+    success, msg = send_test_email(target_email, current_user.full_name)
+    return jsonify({'success': success, 'message': msg})
 
+@app.route('/api/admin/settings/test_sms', methods=['POST'])
+@token_required
+def send_test_sms_route(current_user):
+    data = request.get_json() or {}
+    target_phone = data.get('target_phone', '').strip()
+
+    if not target_phone:
+        return jsonify({'success': False, 'message': 'Target mobile number is required'}), 400
+
+    success, msg = send_test_sms(target_phone, current_user.full_name)
     return jsonify({'success': success, 'message': msg})
 
 # -------------------------------------------------------------------
