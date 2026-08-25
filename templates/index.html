@@ -560,6 +560,47 @@
         </div>
     </div>
 
+    <!-- Admin View Session Details Modal -->
+    <div id="sessionDetailsModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-file-invoice"></i> Session Attendance Details</h3>
+                <button onclick="admin.closeSessionDetailsModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="sessionDetailsHeader" style="margin-bottom: 1rem;"></div>
+            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="custom-table">
+                    <thead>
+                        <tr>
+                            <th>Roll No</th>
+                            <th>Student Name</th>
+                            <th>Status</th>
+                            <th>Method</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionDetailsTableBody"></tbody>
+                </table>
+            </div>
+            <div id="sessionDetailsExports" style="margin-top: 1.25rem; display: flex; gap: 0.5rem; justify-content: flex-end;"></div>
+        </div>
+    </div>
+
+    <!-- Admin Review Session Claims Modal -->
+    <div id="adminClaimsModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-clipboard-check"></i> Review Session Unknown Face Mappings</h3>
+                <button onclick="admin.closeClaimsModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="adminClaimsGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; margin-top: 1rem; max-height: 450px; overflow-y: auto;"></div>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button onclick="admin.closeClaimsModal()" class="btn btn-outline">Close</button>
+                <button onclick="admin.finalizeSessionFromClaimsModal()" class="btn btn-emerald btn-3d"><i class="fa-solid fa-circle-check"></i> Finalize Session Now</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 7-STEP STUDENT REGISTRATION WIZARD MODAL -->
     <div id="addStudentWizardModal" class="modal-overlay">
         <div class="modal-container" style="max-width: 650px;">

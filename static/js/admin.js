@@ -816,22 +816,35 @@ const admin = {
     },
 
     async loadAdminReports() {
+        console.log("[ADMIN REPORTS] Loading sessions...");
         const tbody = document.getElementById('adminReportsTableBody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading attendance sessions...</td></tr>';
+        }
         try {
             const res = await fetch(getApiUrl('/api/sessions'), {
                 headers: { 'Authorization': `Bearer ${auth.token}` }
             });
+            console.log("[ADMIN REPORTS] API status:", res.status);
             const data = await res.json();
-            if (data && data.success && Array.isArray(data.sessions)) {
-                const countEl = document.getElementById('adminCountSessions');
-                if (countEl) countEl.innerText = data.sessions.length;
-                this.renderAdminReportsTable(data.sessions);
-            } else {
-                if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load attendance sessions. Please try again.</td></tr>';
-            }
+            console.log("[ADMIN REPORTS] Response:", data);
+
+            const sessionsList = data ? (data.sessions || data.data || (Array.isArray(data) ? data : [])) : [];
+            console.log("[ADMIN REPORTS] Session count:", sessionsList.length);
+
+            const countEl = document.getElementById('adminCountSessions');
+            if (countEl) countEl.innerText = sessionsList.length;
+
+            console.log("[ADMIN REPORTS] Rendering table...");
+            this.renderAdminReportsTable(sessionsList);
         } catch (err) {
-            console.error("Error loading admin reports:", err);
-            if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load attendance sessions. Please try again.</td></tr>';
+            console.error("[ADMIN REPORTS] Error loading admin reports:", err);
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">
+                    Unable to load attendance sessions. 
+                    <button onclick="admin.loadAdminReports()" class="btn btn-outline btn-sm" style="margin-left: 0.5rem;"><i class="fa-solid fa-rotate"></i> Retry</button>
+                </td></tr>`;
+            }
         }
     },
 
@@ -846,9 +859,11 @@ const admin = {
         }
 
         sessions.forEach(s => {
+            if (!s) return;
             const tr = document.createElement('tr');
-            const isFinalized = s.status === 'FINALIZED';
-            const isSubmitted = s.status === 'SUBMITTED_FOR_APPROVAL';
+            const status = s.status || 'IN_PROGRESS';
+            const isFinalized = status === 'FINALIZED';
+            const isSubmitted = status === 'SUBMITTED_FOR_APPROVAL';
 
             let statusBadge = '';
             if (isFinalized) {
@@ -856,20 +871,23 @@ const admin = {
             } else if (isSubmitted) {
                 statusBadge = '<span class="badge-status badge-pending" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">PENDING APPROVAL</span>';
             } else {
-                statusBadge = `<span class="badge-status badge-pending">${s.status}</span>`;
+                statusBadge = `<span class="badge-status badge-pending">${status}</span>`;
             }
 
             // Extract Date and Time from created_at string
             let dateStr = 'N/A';
             let timeStr = 'N/A';
             if (s.created_at) {
-                const parts = s.created_at.split(' ');
+                const parts = String(s.created_at).split(' ');
                 if (parts.length >= 1) dateStr = parts[0];
                 if (parts.length >= 2) timeStr = parts.slice(1).join(' ');
             }
 
             const profName = s.created_by_teacher_name ? `Prof. ${s.created_by_teacher_name}` : 'N/A';
-            const pendingCount = s.pending_approval_count || 0;
+            const presentCount = s.present_count !== undefined ? s.present_count : 0;
+            const absentCount = s.absent_count !== undefined ? s.absent_count : 0;
+            const pendingCount = s.pending_approval_count !== undefined ? s.pending_approval_count : 0;
+            const className = s.class_name || 'N/A';
 
             let actionsHtml = '';
             if (!isFinalized) {
@@ -883,24 +901,106 @@ const admin = {
                 `;
             } else {
                 actionsHtml = `
-                    <span class="badge-status badge-present">FINALIZED</span>
+                    <span class="badge-status badge-present" style="margin-right: 0.3rem;">FINALIZED</span>
+                    <button onclick="admin.viewSessionDetails(${s.id})" class="btn btn-outline btn-sm">
+                        <i class="fa-solid fa-eye"></i> VIEW DETAILS
+                    </button>
                 `;
             }
 
             tr.innerHTML = `
-                <td><strong>#S-${String(s.id).padStart(3, '0')}</strong></td>
+                <td><strong>#S-${String(s.id || 0).padStart(3, '0')}</strong></td>
                 <td>${dateStr}</td>
                 <td>${timeStr}</td>
                 <td>${profName}</td>
-                <td>${s.class_name}</td>
-                <td><span style="color:var(--neon-emerald); font-weight:bold;">${s.present_count}</span></td>
-                <td><span style="color:#ef4444; font-weight:bold;">${s.absent_count}</span></td>
+                <td>${className}</td>
+                <td><span style="color:var(--neon-emerald); font-weight:bold;">${presentCount}</span></td>
+                <td><span style="color:#ef4444; font-weight:bold;">${absentCount}</span></td>
                 <td><span style="color:var(--neon-cyan); font-weight:bold;">${pendingCount}</span></td>
                 <td>${statusBadge}</td>
                 <td style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">${actionsHtml}</td>
             `;
             tbody.appendChild(tr);
         });
+    },
+
+    async viewSessionDetails(sessionId) {
+        const modal = document.getElementById('sessionDetailsModal');
+        if (modal) modal.classList.add('active');
+        const headerEl = document.getElementById('sessionDetailsHeader');
+        const tbody = document.getElementById('sessionDetailsTableBody');
+        const exportsEl = document.getElementById('sessionDetailsExports');
+
+        if (headerEl) headerEl.innerHTML = '<div style="color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading session details...</div>';
+        if (tbody) tbody.innerHTML = '';
+        if (exportsEl) exportsEl.innerHTML = '';
+
+        try {
+            const res = await fetch(getApiUrl(`/api/sessions/${sessionId}`), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (data.success && data.session) {
+                const s = data.session;
+                const records = data.records || [];
+
+                if (headerEl) {
+                    headerEl.innerHTML = `
+                        <div style="font-size: 1.1rem; font-weight: bold; color: var(--neon-cyan); margin-bottom: 0.3rem;">
+                            Session #S-${String(s.id).padStart(3, '0')} - ${s.class_name}
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">
+                            Professor: Prof. ${s.created_by_teacher_name || 'N/A'} | Date: ${s.created_at || 'N/A'} | Status: <strong>${s.status}</strong>
+                        </div>
+                        <div style="margin-top: 0.5rem; display: flex; gap: 1rem; font-size: 0.9rem;">
+                            <span style="color: var(--neon-emerald); font-weight: bold;">${s.present_count} Present</span>
+                            <span style="color: #ef4444; font-weight: bold;">${s.absent_count} Absent</span>
+                        </div>
+                    `;
+                }
+
+                if (tbody) {
+                    if (records.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No student records found for this session.</td></tr>';
+                    } else {
+                        tbody.innerHTML = records.map(r => `
+                            <tr>
+                                <td><code>${r.roll_no || 'N/A'}</code></td>
+                                <td><strong>${r.student_name || 'Unknown'}</strong></td>
+                                <td>
+                                    <span class="badge-status ${r.status === 'PRESENT' ? 'badge-present' : 'badge-absent'}">
+                                        ${r.status}
+                                    </span>
+                                </td>
+                                <td><span style="font-size: 0.8rem; color: var(--text-muted);">${r.marking_method || 'AI'}</span></td>
+                                <td><span style="font-size: 0.8rem; color: var(--text-muted);">${r.timestamp || ''}</span></td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+
+                if (exportsEl) {
+                    exportsEl.innerHTML = `
+                        <a href="/api/export/excel/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm">
+                            <i class="fa-solid fa-file-excel"></i> Export Excel
+                        </a>
+                        <a href="/api/export/pdf/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm">
+                            <i class="fa-solid fa-file-pdf"></i> Export PDF
+                        </a>
+                    `;
+                }
+            } else {
+                if (headerEl) headerEl.innerHTML = '<div style="color:#ef4444;">Failed to load session details.</div>';
+            }
+        } catch (err) {
+            console.error("Error loading session details:", err);
+            if (headerEl) headerEl.innerHTML = '<div style="color:#ef4444;">Error connecting to server.</div>';
+        }
+    },
+
+    closeSessionDetailsModal() {
+        const modal = document.getElementById('sessionDetailsModal');
+        if (modal) modal.classList.remove('active');
     },
 
     async loadEmailSettings() {
