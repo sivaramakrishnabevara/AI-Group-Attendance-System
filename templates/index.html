@@ -132,21 +132,39 @@
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; flex-wrap: wrap;" class="anim-enter anim-delay-2">
                     <button onclick="admin.showTab('teachers')" id="tabBtnTeachers" class="btn btn-outline tab-3d active"><i class="fa-solid fa-users"></i> Manage Professors</button>
                     <button onclick="admin.showTab('students')" id="tabBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Manage Students</button>
-                    <button onclick="admin.showTab('unknownfaces')" id="tabBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-check"></i> Unknown Face Approval</button>
+                    <button onclick="admin.showTab('unknownfaces')" id="tabBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-check"></i> Unknown Face Review</button>
                     <button onclick="admin.showTab('reports')" id="tabBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-clock-rotate-left"></i> Attendance Finalization & History</button>
                     <button onclick="admin.showTab('email')" id="tabBtnEmail" class="btn btn-outline tab-3d"><i class="fa-solid fa-envelope"></i> Parent Email Alerts (Gmail)</button>
                 </div>
 
-                <!-- Admin Tab Content: Unknown Face Approval -->
+                <!-- Admin Tab Content: Unknown Face Review -->
                 <div id="adminTabUnknownFaces" class="glass-card holo-shimmer" style="display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <div>
-                            <h3><i class="fa-solid fa-user-check" style="color: var(--neon-cyan);"></i> Unknown Face Assignment Approval</h3>
-                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review professor manual unknown face mappings and approve/reject before final attendance is recorded.</p>
+                            <h3><i class="fa-solid fa-user-check" style="color: var(--neon-cyan);"></i> Unknown Face Review</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review pending unknown faces and approve or reject professor assignments.</p>
                         </div>
                         <button onclick="admin.loadUnknownFaceApprovals()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh List</button>
                     </div>
-                    <div id="adminUnknownFacesGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem;"></div>
+
+                    <div class="table-responsive">
+                        <table class="custom-table">
+                            <thead>
+                                <tr>
+                                    <th>Unknown ID</th>
+                                    <th>Preview</th>
+                                    <th>Session</th>
+                                    <th>Date/Time</th>
+                                    <th>Professor</th>
+                                    <th>Suggested Student</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminUnknownFacesTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="unknownFacesPagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem; flex-wrap: wrap; gap: 0.5rem;"></div>
                 </div>
 
                 <!-- Admin Tab Content: Teachers -->
@@ -185,7 +203,7 @@
                                     <th>Roll No</th>
                                     <th>Student Name</th>
                                     <th>Class</th>
-                                    <th>Parent Mobile Number</th>
+                                    <th>Parent Email</th>
                                     <th>Face Encoding</th>
                                     <th>Actions</th>
                                 </tr>
@@ -416,7 +434,7 @@
                                     <th>Roll No</th>
                                     <th>Student Name</th>
                                     <th>Class</th>
-                                    <th>Parent Mobile Number</th>
+                                    <th>Parent Email</th>
                                     <th>Face Encoding</th>
                                     <th>Actions</th>
                                 </tr>
@@ -532,11 +550,35 @@
                     <input type="text" id="editStClassName" class="form-control" required placeholder="e.g. Computer Science - Year 4">
                 </div>
                 <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-mobile-screen-button"></i> Parent Mobile Number (REQUIRED)</label>
-                    <input type="tel" id="editStParentPhone" class="form-control" required placeholder="e.g. +91 9876543210">
+                    <label class="form-label"><i class="fa-solid fa-envelope"></i> Parent Email Address (REQUIRED) *</label>
+                    <input type="email" id="editStParentEmail" class="form-control" required placeholder="e.g. parent@gmail.com">
                 </div>
                 <button type="submit" class="btn btn-primary btn-3d" style="width: 100%;"><i class="fa-solid fa-floppy-disk"></i> Update Student</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Admin Unknown Face Detail Review Modal -->
+    <div id="adminUnknownFaceDetailModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 550px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-user-check"></i> Unknown Face Review Details</h3>
+                <button onclick="admin.closeUnknownFaceDetailModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div style="display: flex; gap: 1.25rem; margin-top: 1rem; align-items: flex-start; flex-wrap: wrap;">
+                <div style="width: 130px; height: 130px; flex-shrink: 0; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: 0.8rem;">
+                    <img id="ufDetailImage" style="width: 100%; height: 100%; object-fit: cover;" alt="Unknown face preview" />
+                </div>
+                <div style="flex: 1; min-width: 200px; display: grid; grid-template-columns: 1fr; gap: 0.4rem; font-size: 0.88rem;">
+                    <div><strong>Unknown Face ID:</strong> <span id="ufDetailId" style="color: var(--neon-cyan); font-weight: 700;"></span></div>
+                    <div><strong>Session:</strong> <span id="ufDetailSession"></span></div>
+                    <div><strong>Date & Time:</strong> <span id="ufDetailDate" style="color: var(--text-muted);"></span></div>
+                    <div><strong>Professor:</strong> <span id="ufDetailProf"></span></div>
+                    <div><strong>Suggested Student:</strong> <span id="ufDetailStudent" style="font-weight: 700;"></span></div>
+                    <div><strong>Current Status:</strong> <span id="ufDetailStatus"></span></div>
+                </div>
+            </div>
+            <div id="ufDetailActions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem;"></div>
         </div>
     </div>
 
@@ -612,7 +654,7 @@
             <!-- Step Progress Indicator -->
             <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem;">
                 <span id="stepIndicator1" style="font-size: 0.82rem; font-weight: 700; color: var(--neon-cyan);">1. Details</span>
-                <span id="stepIndicator2" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">2. Mobile</span>
+                <span id="stepIndicator2" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">2. Email</span>
                 <span id="stepIndicator3" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">3. Camera</span>
                 <span id="stepIndicator4" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">4. Detect</span>
                 <span id="stepIndicator5" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">5. Preview</span>
@@ -620,9 +662,9 @@
                 <span id="stepIndicator7" style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">7. Encoded</span>
             </div>
 
-            <!-- STEP 1 & 2: Student Details & Parent Mobile Form -->
+            <!-- STEP 1: Student Details & Parent Email Form -->
             <div id="regStepDetails">
-                <h4 style="margin-bottom: 1rem; color: var(--neon-cyan);"><i class="fa-solid fa-clipboard-user"></i> Step 1 & 2: Student Information</h4>
+                <h4 style="margin-bottom: 1rem; color: var(--neon-cyan);"><i class="fa-solid fa-clipboard-user"></i> Step 1: Student Information</h4>
                 <div class="form-group">
                     <label class="form-label"><i class="fa-solid fa-user"></i> Student Name *</label>
                     <input type="text" id="wizStName" class="form-control" required placeholder="e.g. Siva Bevara">
@@ -634,11 +676,6 @@
                 <div class="form-group">
                     <label class="form-label"><i class="fa-solid fa-school"></i> Class Name *</label>
                     <input type="text" id="wizStClassName" class="form-control" required value="Computer Science - Year 4">
-                </div>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-mobile-screen-button"></i> Parent Mobile Number (REQUIRED) *</label>
-                    <input type="tel" id="wizStParentPhone" class="form-control" required placeholder="e.g. +91 9876543210">
-                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.25rem;">Standard 10-digit Indian mobile number.</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label"><i class="fa-solid fa-envelope"></i> Parent Email Address (REQUIRED) *</label>
@@ -692,7 +729,7 @@
                     <div style="margin-bottom: 1rem;">
                         <h4 id="prevStudentName" style="color: #ffffff; margin-bottom: 0.3rem;">Student Name</h4>
                         <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem;">Roll No: <strong id="prevRollNo" style="color: var(--neon-cyan);">--</strong> | Class: <span id="prevClass">--</span></div>
-                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Parent Mobile: <span id="prevMobile" style="color: var(--neon-emerald);">--</span></div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Parent Email: <span id="prevEmail" style="color: var(--neon-emerald);">--</span></div>
                     </div>
 
                     <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem;">5 Captured Face Images:</div>
@@ -725,22 +762,6 @@
         </div>
     </div>
 
-    <!-- Send Test SMS Modal -->
-    <div id="testSMSModal" class="modal-overlay">
-        <div class="modal-container" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-paper-plane"></i> Send Test Parent SMS</h3>
-                <button onclick="admin.closeTestSMSModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form onsubmit="admin.handleSendTestSMS(event)">
-                <div class="form-group">
-                    <label class="form-label">Target Parent Mobile Number</label>
-                    <input type="tel" id="testSMSPhoneInput" class="form-control" required placeholder="e.g. +91 9876543210">
-                </div>
-                <button type="submit" class="btn btn-emerald" style="width: 100%;"><i class="fa-solid fa-paper-plane"></i> Send Test SMS Now</button>
-            </form>
-        </div>
-    </div>
 
     <!-- Scripts -->
     <script src="/static/js/auth.js"></script>

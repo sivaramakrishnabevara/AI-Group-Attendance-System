@@ -18,12 +18,13 @@ const webcam = {
         // Reset form inputs
         const nameInput = document.getElementById('wizStName');
         const rollInput = document.getElementById('wizStRollNo');
-        const classInput = document.getElementById('wizStClassName');
+        const emailInput = document.getElementById('wizStParentEmail');
         const phoneInput = document.getElementById('wizStParentPhone');
 
         if (nameInput) nameInput.value = '';
         if (rollInput) rollInput.value = '';
         if (classInput) classInput.value = 'Computer Science - Year 4';
+        if (emailInput) emailInput.value = '';
         if (phoneInput) phoneInput.value = '';
 
         // Reset views
@@ -92,11 +93,12 @@ const webcam = {
         const name = document.getElementById('wizStName').value.trim();
         const roll_no = document.getElementById('wizStRollNo').value.trim();
         const class_name = document.getElementById('wizStClassName').value.trim();
-        const parent_phone = document.getElementById('wizStParentPhone').value.trim();
         const parent_email = document.getElementById('wizStParentEmail').value.trim();
+        const phoneEl = document.getElementById('wizStParentPhone');
+        const parent_phone = phoneEl ? phoneEl.value.trim() : '';
 
-        if (!name || !roll_no || !class_name || !parent_phone || !parent_email) {
-            alert('Please fill in all required fields (Name, Roll No, Class Name, Parent Mobile Number, and Parent Email Address).');
+        if (!name || !roll_no || !class_name || !parent_email) {
+            alert('Please fill in all required fields (Name, Roll No, Class Name, and Parent Email Address).');
             return;
         }
 
@@ -106,14 +108,7 @@ const webcam = {
             return;
         }
 
-        // Validate Indian mobile number
-        const cleanedPhone = parent_phone.replace(/[\s\-\(\)]/g, '');
-        if (!/^(?:\+91|91)?[6-9]\d{9}$/.test(cleanedPhone)) {
-            alert('Please enter a valid 10-digit Indian parent mobile number (e.g., +91 9876543210 or 9876543210).');
-            return;
-        }
-
-        this.studentData = { name, roll_no, class_name, parent_phone: cleanedPhone, parent_email };
+        this.studentData = { name, roll_no, class_name, parent_email, parent_phone };
 
         document.getElementById('regStepDetails').style.display = 'none';
         document.getElementById('regStepCamera').style.display = 'block';
@@ -218,7 +213,8 @@ const webcam = {
         document.getElementById('prevStudentName').innerText = this.studentData.name;
         document.getElementById('prevRollNo').innerText = this.studentData.roll_no;
         document.getElementById('prevClass').innerText = this.studentData.class_name;
-        document.getElementById('prevMobile').innerText = this.studentData.parent_phone;
+        const emailEl = document.getElementById('prevEmail');
+        if (emailEl) emailEl.innerText = this.studentData.parent_email;
 
         // Render 5 thumbnail previews
         const grid = document.getElementById('wizThumbnailsGrid');

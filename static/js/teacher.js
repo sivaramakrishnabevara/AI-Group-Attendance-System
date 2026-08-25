@@ -53,12 +53,12 @@ const teacher = {
                 }
                 data.students.forEach(st => {
                     const tr = document.createElement('tr');
-                    const mobileNum = st.parent_mobile_number || st.parent_phone || 'N/A';
+                    const parentEmail = st.parent_email || (st.roll_no ? st.roll_no.toLowerCase() + '@student.local' : 'N/A');
                     tr.innerHTML = `
                         <td><strong>${st.roll_no}</strong></td>
                         <td>${st.name}</td>
                         <td>${st.class_name}</td>
-                        <td><code>${mobileNum}</code></td>
+                        <td><code>${parentEmail}</code></td>
                         <td>
                             ${st.has_face 
                                 ? '<span class="badge-status badge-present">✓ Encoded</span>' 

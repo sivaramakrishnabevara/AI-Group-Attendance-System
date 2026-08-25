@@ -298,15 +298,17 @@ def add_student(current_user):
     face_images = data.get('face_images') # List of 5 base64 images
     single_face_image = data.get('face_image') # Single base64 image fallback
 
-    if not all([name, roll_no, class_name, parent_phone, parent_email]):
-        return jsonify({'success': False, 'message': 'Student Name, Roll Number, Class Name, Parent Mobile Number, and Parent Email are required'}), 400
+    if not all([name, roll_no, class_name, parent_email]):
+        return jsonify({'success': False, 'message': 'Student Name, Roll Number, Class Name, and Parent Email are required'}), 400
 
     if not validate_email_address(parent_email):
         return jsonify({'success': False, 'message': 'Please enter a valid Parent Email address (e.g. parent@example.com)'}), 400
 
-    is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
-    if not is_valid_phone:
-        return jsonify({'success': False, 'message': 'Please enter a valid Parent Mobile Number'}), 400
+    norm_phone = ''
+    if parent_phone:
+        is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
+        if not is_valid_phone:
+            norm_phone = parent_phone
 
     if not face_images and not single_face_image:
         return jsonify({'success': False, 'message': 'Face photo capture (5 images) is required to complete student registration'}), 400
@@ -469,12 +471,17 @@ def update_student(current_user, student_id):
     parent_phone = (data.get('parent_mobile_number') or data.get('parent_phone') or '').strip()
     parent_email = data.get('parent_email', '').strip()
 
-    if not all([name, roll_no, class_name, parent_phone]):
-        return jsonify({'success': False, 'message': 'Name, Roll Number, Class Name, and Parent Mobile Number are required'}), 400
+    if not all([name, roll_no, class_name, parent_email]):
+        return jsonify({'success': False, 'message': 'Name, Roll Number, Class Name, and Parent Email are required'}), 400
 
-    is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
-    if not is_valid_phone:
-        return jsonify({'success': False, 'message': 'Please enter a valid Parent Mobile Number'}), 400
+    if not validate_email_address(parent_email):
+        return jsonify({'success': False, 'message': 'Please enter a valid Parent Email address (e.g. parent@example.com)'}), 400
+
+    norm_phone = student.parent_phone or ''
+    if parent_phone:
+        is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
+        if not is_valid_phone:
+            norm_phone = parent_phone
 
     if student_code:
         existing = Student.query.filter(Student.student_code == student_code, Student.id != student_id).first()
@@ -485,7 +492,9 @@ def update_student(current_user, student_id):
     student.name = name
     student.roll_no = roll_no
     student.class_name = class_name
-    student.parent_phone = norm_phone
+    student.parent_email = parent_email
+    if norm_phone:
+        student.parent_phone = norm_phone
     if parent_email:
         student.parent_email = parent_email
 

@@ -41,10 +41,14 @@ const admin = {
         }
     },
 
+    unknownFacesCurrentPage: 1,
+    unknownFacesPerPage: 10,
+    unknownFacesData: [],
+
     async loadUnknownFaceApprovals() {
-        const gallery = document.getElementById('adminUnknownFacesGallery');
-        if (!gallery) return;
-        gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">Loading unknown face assignments...</div>';
+        const tbody = document.getElementById('adminUnknownFacesTableBody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading unknown faces...</td></tr>';
 
         try {
             const res = await fetch(getApiUrl('/api/unknown_faces'), {
@@ -52,53 +56,215 @@ const admin = {
             });
             const data = await res.json();
             if (data.success) {
-                gallery.innerHTML = '';
-                const unknownFaces = data.unknown_faces || data.undetected_faces || [];
-                
-                if (unknownFaces.length === 0) {
-                    gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem; grid-column: 1/-1;">No unknown faces pending approval.</div>';
-                    return;
-                }
-
-                unknownFaces.forEach(uf => {
-                    const card = document.createElement('div');
-                    card.className = 'glass-card';
-                    card.style.padding = '1rem';
-
-                    let actionsHtml = '';
-                    if (uf.status === 'APPROVED') {
-                        actionsHtml = `<div style="text-align:center; font-weight:bold; color:var(--neon-emerald); margin-top:0.5rem;"><i class="fa-solid fa-circle-check"></i> Approved (PRESENT)</div>`;
-                    } else if (uf.status === 'REJECTED') {
-                        actionsHtml = `<div style="text-align:center; font-weight:bold; color:#ef4444; margin-top:0.5rem;"><i class="fa-solid fa-circle-xmark"></i> Rejected</div>`;
-                    } else {
-                        actionsHtml = `
-                            <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
-                                <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-sm" style="flex:1;">
-                                    <i class="fa-solid fa-check"></i> APPROVE
-                                </button>
-                                <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'REJECT')" class="btn btn-danger btn-sm" style="flex:1;">
-                                    <i class="fa-solid fa-xmark"></i> REJECT
-                                </button>
-                            </div>
-                        `;
-                    }
-
-                    card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem;">
-                            <span style="font-size:0.8rem; font-weight:bold; color:var(--neon-cyan);">Unknown #U${String(uf.id).padStart(3, '0')}</span>
-                            <span class="badge-status ${uf.status === 'APPROVED' ? 'badge-present' : uf.status === 'REJECTED' ? 'badge-absent' : 'badge-pending'}">${uf.status}</span>
-                        </div>
-                        <img src="${getApiUrl('/' + uf.image_path.replace(/^\//, ''))}" style="width:100%; height:140px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--border-glass);" />
-                        <div style="font-size:0.82rem; margin-top:0.4rem;"><strong>Suggested Student:</strong> ${uf.claimed_student_name || 'Unassigned'}</div>
-                        <div style="font-size:0.78rem; color:var(--text-muted);">Professor: ${uf.claimed_by_teacher_name || 'N/A'} | Time: ${uf.timestamp}</div>
-                        ${actionsHtml}
-                    `;
-                    gallery.appendChild(card);
-                });
+                this.unknownFacesData = data.unknown_faces || data.undetected_faces || [];
+                this.unknownFacesCurrentPage = 1;
+                this.renderUnknownFacesTable();
+            } else {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load unknown faces.</td></tr>';
             }
         } catch (err) {
             console.error("Error loading unknown face approvals:", err);
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load unknown faces.</td></tr>';
         }
+    },
+
+    renderUnknownFacesTable() {
+        const tbody = document.getElementById('adminUnknownFacesTableBody');
+        const paginationEl = document.getElementById('unknownFacesPagination');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const list = this.unknownFacesData || [];
+
+        if (list.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" style="text-align:center; color: var(--text-muted); padding: 2.5rem 1rem;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 2rem; color: var(--neon-emerald); margin-bottom: 0.5rem; display: block;"></i>
+                        No pending unknown faces.
+                    </td>
+                </tr>`;
+            if (paginationEl) paginationEl.innerHTML = '';
+            return;
+        }
+
+        const totalPages = Math.ceil(list.length / this.unknownFacesPerPage);
+        if (this.unknownFacesCurrentPage < 1) this.unknownFacesCurrentPage = 1;
+        if (this.unknownFacesCurrentPage > totalPages) this.unknownFacesCurrentPage = totalPages;
+
+        const startIndex = (this.unknownFacesCurrentPage - 1) * this.unknownFacesPerPage;
+        const pageItems = list.slice(startIndex, startIndex + this.unknownFacesPerPage);
+
+        pageItems.forEach(uf => {
+            const tr = document.createElement('tr');
+            const status = uf.status || 'UNCLAIMED';
+
+            let statusBadge = '';
+            if (status === 'APPROVED') {
+                statusBadge = '<span class="badge-status badge-present">APPROVED</span>';
+            } else if (status === 'REJECTED') {
+                statusBadge = '<span class="badge-status badge-absent">REJECTED</span>';
+            } else if (status === 'PENDING_ADMIN') {
+                statusBadge = '<span class="badge-status badge-pending" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">PENDING</span>';
+            } else {
+                statusBadge = `<span class="badge-status badge-pending">${status}</span>`;
+            }
+
+            const imgUrl = uf.image_path ? getApiUrl('/' + uf.image_path.replace(/^\//, '')) : '';
+            const imgHtml = imgUrl ? `
+                <img src="${imgUrl}" 
+                     style="width: 44px; height: 44px; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-glass);" 
+                     onerror="this.onerror=null; this.outerHTML='<span style=\\'font-size:0.75rem; color:var(--text-muted);\\'>Image unavailable</span>';" />
+            ` : '<span style="font-size:0.75rem; color:var(--text-muted);">Image unavailable</span>';
+
+            const sessStr = uf.session_id ? `#S-${String(uf.session_id).padStart(3, '0')}` : 'N/A';
+            const dateStr = uf.timestamp || 'N/A';
+            const profStr = uf.claimed_by_teacher_name ? `Prof. ${uf.claimed_by_teacher_name}` : 'N/A';
+            const studentStr = uf.claimed_student_name || 'Unassigned';
+
+            let actionButtons = `
+                <button onclick="admin.openUnknownFaceDetailModal(${uf.id})" class="btn btn-purple btn-sm" style="margin-right: 0.3rem;" title="Review details">
+                    <i class="fa-solid fa-eye"></i> REVIEW
+                </button>
+            `;
+
+            if (status !== 'APPROVED' && status !== 'REJECTED') {
+                actionButtons += `
+                    <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-sm" style="margin-right: 0.3rem;">
+                        <i class="fa-solid fa-check"></i> APPROVE
+                    </button>
+                    <button onclick="admin.handleUnknownFaceAction(${uf.id}, 'REJECT')" class="btn btn-danger btn-sm">
+                        <i class="fa-solid fa-xmark"></i> REJECT
+                    </button>
+                `;
+            }
+
+            tr.innerHTML = `
+                <td><strong>U${String(uf.id).padStart(3, '0')}</strong></td>
+                <td>${imgHtml}</td>
+                <td>${sessStr}</td>
+                <td><span style="font-size:0.82rem; color:var(--text-muted);">${dateStr}</span></td>
+                <td>${profStr}</td>
+                <td><strong>${studentStr}</strong></td>
+                <td>${statusBadge}</td>
+                <td style="white-space: nowrap;">${actionButtons}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (paginationEl) {
+            if (totalPages <= 1) {
+                paginationEl.innerHTML = `<span style="font-size:0.85rem; color:var(--text-muted);">Showing all ${list.length} records</span>`;
+            } else {
+                let pageBtns = '';
+                for (let i = 1; i <= totalPages; i++) {
+                    const activeClass = i === this.unknownFacesCurrentPage ? 'btn-primary' : 'btn-outline';
+                    pageBtns += `<button onclick="admin.changeUnknownFacesPage(${i})" class="btn ${activeClass} btn-sm" style="padding: 0.3rem 0.65rem; margin-right: 0.2rem;">${i}</button>`;
+                }
+
+                paginationEl.innerHTML = `
+                    <div style="font-size:0.85rem; color:var(--text-muted);">
+                        Showing ${startIndex + 1} to ${Math.min(startIndex + this.unknownFacesPerPage, list.length)} of ${list.length} records
+                    </div>
+                    <div style="display: flex; gap: 0.3rem; align-items: center;">
+                        <button onclick="admin.changeUnknownFacesPage(${this.unknownFacesCurrentPage - 1})" 
+                                class="btn btn-outline btn-sm" ${this.unknownFacesCurrentPage === 1 ? 'disabled' : ''}>
+                            Previous
+                        </button>
+                        ${pageBtns}
+                        <button onclick="admin.changeUnknownFacesPage(${this.unknownFacesCurrentPage + 1})" 
+                                class="btn btn-outline btn-sm" ${this.unknownFacesCurrentPage === totalPages ? 'disabled' : ''}>
+                            Next
+                        </button>
+                    </div>
+                `;
+            }
+        }
+    },
+
+    changeUnknownFacesPage(page) {
+        this.unknownFacesCurrentPage = page;
+        this.renderUnknownFacesTable();
+    },
+
+    openUnknownFaceDetailModal(id) {
+        const uf = (this.unknownFacesData || []).find(item => item.id === id);
+        if (!uf) return;
+
+        const modal = document.getElementById('adminUnknownFaceDetailModal');
+        if (!modal) return;
+
+        const imgUrl = uf.image_path ? getApiUrl('/' + uf.image_path.replace(/^\//, '')) : '';
+        const imgEl = document.getElementById('ufDetailImage');
+        if (imgEl) {
+            if (imgUrl) {
+                imgEl.src = imgUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.style.display = 'none';
+                    if (this.parentNode) this.parentNode.innerHTML = '<span style="font-size:0.75rem; color:var(--text-muted);">Image unavailable</span>';
+                };
+            } else {
+                imgEl.style.display = 'none';
+                if (imgEl.parentNode) imgEl.parentNode.innerHTML = '<span style="font-size:0.75rem; color:var(--text-muted);">Image unavailable</span>';
+            }
+        }
+
+        const idEl = document.getElementById('ufDetailId');
+        if (idEl) idEl.innerText = `U${String(uf.id).padStart(3, '0')}`;
+
+        const sessEl = document.getElementById('ufDetailSession');
+        if (sessEl) sessEl.innerText = uf.session_id ? `#S-${String(uf.session_id).padStart(3, '0')}` : 'N/A';
+
+        const dateEl = document.getElementById('ufDetailDate');
+        if (dateEl) dateEl.innerText = uf.timestamp || 'N/A';
+
+        const profEl = document.getElementById('ufDetailProf');
+        if (profEl) profEl.innerText = uf.claimed_by_teacher_name ? `Prof. ${uf.claimed_by_teacher_name}` : 'N/A';
+
+        const studentEl = document.getElementById('ufDetailStudent');
+        if (studentEl) studentEl.innerText = uf.claimed_student_name || 'Unassigned';
+
+        const statusEl = document.getElementById('ufDetailStatus');
+        if (statusEl) {
+            statusEl.innerText = uf.status || 'UNCLAIMED';
+            statusEl.className = `badge-status ${uf.status === 'APPROVED' ? 'badge-present' : uf.status === 'REJECTED' ? 'badge-absent' : 'badge-pending'}`;
+        }
+
+        const actionsEl = document.getElementById('ufDetailActions');
+        if (actionsEl) {
+            if (uf.status !== 'APPROVED' && uf.status !== 'REJECTED') {
+                actionsEl.innerHTML = `
+                    <button onclick="admin.handleUnknownFaceActionFromModal(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-3d">
+                        <i class="fa-solid fa-check"></i> APPROVE
+                    </button>
+                    <button onclick="admin.handleUnknownFaceActionFromModal(${uf.id}, 'REJECT')" class="btn btn-danger btn-3d">
+                        <i class="fa-solid fa-xmark"></i> REJECT
+                    </button>
+                    <button onclick="admin.closeUnknownFaceDetailModal()" class="btn btn-outline">
+                        CLOSE
+                    </button>
+                `;
+            } else {
+                actionsEl.innerHTML = `
+                    <button onclick="admin.closeUnknownFaceDetailModal()" class="btn btn-outline">
+                        CLOSE
+                    </button>
+                `;
+            }
+        }
+
+        modal.classList.add('active');
+    },
+
+    closeUnknownFaceDetailModal() {
+        const modal = document.getElementById('adminUnknownFaceDetailModal');
+        if (modal) modal.classList.remove('active');
+    },
+
+    async handleUnknownFaceActionFromModal(id, action) {
+        this.closeUnknownFaceDetailModal();
+        await this.handleUnknownFaceAction(id, action);
     },
 
     async handleUnknownFaceAction(id, action) {
@@ -482,19 +648,19 @@ const admin = {
 
         students.forEach(s => {
             const tr = document.createElement('tr');
-            const mobileNum = s.parent_mobile_number || s.parent_phone || 'N/A';
+            const parentEmail = s.parent_email || `${s.roll_no ? s.roll_no.toLowerCase() : 'student'}@student.local`;
             tr.innerHTML = `
                 <td><strong>${s.roll_no}</strong></td>
                 <td>${s.name}</td>
                 <td>${s.class_name}</td>
-                <td><code>${mobileNum}</code></td>
+                <td><code>${parentEmail}</code></td>
                 <td>
                     <span class="badge-status ${s.has_face ? 'badge-present' : 'badge-absent'}">
                         ${s.has_face ? '✓ Encoded' : 'Missing Face'}
                     </span>
                 </td>
                 <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button onclick="admin.openEditStudentModal(${s.id}, '${s.name.replace(/'/g, "\\'") }', '${s.roll_no}', '${s.class_name.replace(/'/g, "\\'") }', '${mobileNum}')" class="btn btn-outline btn-sm">
+                    <button onclick="admin.openEditStudentModal(${s.id}, '${s.name.replace(/'/g, "\\'")}', '${s.roll_no}', '${s.class_name.replace(/'/g, "\\'")}', '${parentEmail.replace(/'/g, "\\'")}')" class="btn btn-outline btn-sm">
                         <i class="fa-solid fa-pen-to-square"></i> Edit
                     </button>
                     <button onclick="admin.deleteStudent(${s.id})" class="btn btn-danger btn-sm">
@@ -507,12 +673,13 @@ const admin = {
     },
 
     // ---- Edit Student Modal ----
-    openEditStudentModal(id, name, rollNo, className, parentPhone) {
+    openEditStudentModal(id, name, rollNo, className, parentEmail) {
         document.getElementById('editStudentId').value = id;
         document.getElementById('editStName').value = name;
         document.getElementById('editStRollNo').value = rollNo;
         document.getElementById('editStClassName').value = className;
-        document.getElementById('editStParentPhone').value = parentPhone;
+        const emailEl = document.getElementById('editStParentEmail');
+        if (emailEl) emailEl.value = parentEmail || '';
         document.getElementById('editStudentModal').classList.add('active');
     },
 
@@ -526,7 +693,8 @@ const admin = {
         const name = document.getElementById('editStName').value.trim();
         const roll_no = document.getElementById('editStRollNo').value.trim();
         const class_name = document.getElementById('editStClassName').value.trim();
-        const parent_phone = document.getElementById('editStParentPhone').value.trim();
+        const emailEl = document.getElementById('editStParentEmail');
+        const parent_email = emailEl ? emailEl.value.trim() : '';
 
         try {
             const res = await fetch(getApiUrl(`/api/students/${id}`), {
@@ -535,7 +703,7 @@ const admin = {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`
                 },
-                body: JSON.stringify({ name, roll_no, class_name, parent_phone })
+                body: JSON.stringify({ name, roll_no, class_name, parent_email })
             });
 
             const data = await res.json();
