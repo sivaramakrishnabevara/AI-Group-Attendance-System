@@ -895,16 +895,28 @@ const admin = {
                     <button onclick="admin.viewSessionClaims(${s.id})" class="btn btn-purple btn-sm" style="margin-right: 0.3rem;">
                         <i class="fa-solid fa-clipboard-check"></i> REVIEW ATTENDANCE
                     </button>
-                    <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm btn-3d">
+                    <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm btn-3d" style="margin-right: 0.3rem;">
                         <i class="fa-solid fa-circle-check"></i> FINALIZE ATTENDANCE
                     </button>
+                    <a href="${getApiUrl('/api/export/excel/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" style="margin-right: 0.3rem;" title="Download Excel">
+                        <i class="fa-solid fa-file-excel" style="color:var(--neon-emerald);"></i> Excel
+                    </a>
+                    <a href="${getApiUrl('/api/export/pdf/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" title="Download PDF">
+                        <i class="fa-solid fa-file-pdf" style="color:#ef4444;"></i> PDF
+                    </a>
                 `;
             } else {
                 actionsHtml = `
                     <span class="badge-status badge-present" style="margin-right: 0.3rem;">FINALIZED</span>
-                    <button onclick="admin.viewSessionDetails(${s.id})" class="btn btn-outline btn-sm">
+                    <button onclick="admin.viewSessionDetails(${s.id})" class="btn btn-purple btn-sm" style="margin-right: 0.3rem;">
                         <i class="fa-solid fa-eye"></i> VIEW DETAILS
                     </button>
+                    <a href="${getApiUrl('/api/export/excel/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" style="margin-right: 0.3rem;" title="Download Excel">
+                        <i class="fa-solid fa-file-excel" style="color:var(--neon-emerald);"></i> Excel
+                    </a>
+                    <a href="${getApiUrl('/api/export/pdf/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" title="Download PDF">
+                        <i class="fa-solid fa-file-pdf" style="color:#ef4444;"></i> PDF
+                    </a>
                 `;
             }
 
@@ -947,14 +959,20 @@ const admin = {
                 if (headerEl) {
                     headerEl.innerHTML = `
                         <div style="font-size: 1.1rem; font-weight: bold; color: var(--neon-cyan); margin-bottom: 0.3rem;">
-                            Session #S-${String(s.id).padStart(3, '0')} - ${s.class_name}
+                            Session #S-${String(s.id).padStart(3, '0')}: ${s.session_title || s.class_name}
                         </div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">
-                            Professor: Prof. ${s.created_by_teacher_name || 'N/A'} | Date: ${s.created_at || 'N/A'} | Status: <strong>${s.status}</strong>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">
+                            <div><strong>Session ID:</strong> #S-${String(s.id).padStart(3, '0')}</div>
+                            <div><strong>Session Title:</strong> ${s.session_title || 'N/A'}</div>
+                            <div><strong>Date & Time:</strong> ${s.created_at || 'N/A'}</div>
+                            <div><strong>Professor:</strong> Prof. ${s.created_by_teacher_name || 'N/A'}</div>
+                            <div><strong>Class:</strong> ${s.class_name || 'N/A'}</div>
+                            <div><strong>Status:</strong> <span class="badge-status ${s.status === 'FINALIZED' ? 'badge-present' : 'badge-pending'}">${s.status}</span></div>
                         </div>
-                        <div style="margin-top: 0.5rem; display: flex; gap: 1rem; font-size: 0.9rem;">
-                            <span style="color: var(--neon-emerald); font-weight: bold;">${s.present_count} Present</span>
-                            <span style="color: #ef4444; font-weight: bold;">${s.absent_count} Absent</span>
+                        <div style="margin-top: 0.75rem; display: flex; gap: 1rem; font-size: 0.9rem;">
+                            <span style="color: var(--neon-emerald); font-weight: bold;">Present: ${s.present_count || 0}</span>
+                            <span style="color: #ef4444; font-weight: bold;">Absent: ${s.absent_count || 0}</span>
+                            <span style="color: var(--neon-cyan); font-weight: bold;">Pending: ${s.pending_approval_count || 0}</span>
                         </div>
                     `;
                 }
@@ -981,11 +999,11 @@ const admin = {
 
                 if (exportsEl) {
                     exportsEl.innerHTML = `
-                        <a href="/api/export/excel/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm">
-                            <i class="fa-solid fa-file-excel"></i> Export Excel
+                        <a href="${getApiUrl('/api/export/excel/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-emerald btn-sm btn-3d">
+                            <i class="fa-solid fa-file-excel"></i> DOWNLOAD EXCEL
                         </a>
-                        <a href="/api/export/pdf/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm">
-                            <i class="fa-solid fa-file-pdf"></i> Export PDF
+                        <a href="${getApiUrl('/api/export/pdf/' + s.id)}?token=${auth.token}" target="_blank" class="btn btn-purple btn-sm btn-3d">
+                            <i class="fa-solid fa-file-pdf"></i> DOWNLOAD PDF
                         </a>
                     `;
                 }

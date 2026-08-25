@@ -43,6 +43,9 @@ def token_required(f):
                 token = auth_header.split(' ')[1]
         
         if not token:
+            token = request.args.get('token')
+
+        if not token:
             return jsonify({'success': False, 'message': 'Authentication token is missing'}), 401
         
         try:
@@ -1111,21 +1114,25 @@ def get_session_details(current_user, session_id):
     })
 
 @app.route('/api/export/excel/<int:session_id>', methods=['GET'])
+@app.route('/api/sessions/<int:session_id>/export/excel', methods=['GET'])
 @token_required
 def export_excel(current_user, session_id):
     """
-    Req 10 & 11: Export session attendance to Excel file.
-    Available to both Teacher and Admin.
+    Export session attendance to Excel file (.xlsx).
+    Available to both Professor and Admin.
     """
     session = AttendanceSession.query.get(session_id)
     if not session:
-        return jsonify({'success': False, 'message': 'Session not found'}), 404
+        return jsonify({'success': False, 'message': 'Session not found.'}), 404
 
     records = AttendanceRecord.query.filter_by(session_id=session.id).all()
-    filename = f"Attendance_Report_{session.class_name.replace(' ', '_')}_{session.id}.xlsx"
+    filename = f"attendance_session_{session.id}.xlsx"
     file_path = os.path.join(Config.EXPORT_DIR, filename)
 
-    export_attendance_to_excel(session, records, file_path)
+    try:
+        export_attendance_to_excel(session, records, file_path)
+    except Exception as e:
+        return jsonify({'success': False, 'message': 'Unable to generate report. Please try again.'}), 500
 
     return send_file(
         file_path,
@@ -1135,21 +1142,25 @@ def export_excel(current_user, session_id):
     )
 
 @app.route('/api/export/pdf/<int:session_id>', methods=['GET'])
+@app.route('/api/sessions/<int:session_id>/export/pdf', methods=['GET'])
 @token_required
 def export_pdf(current_user, session_id):
     """
-    Req 10 & 11: Export session attendance to PDF file.
-    Available to both Teacher and Admin.
+    Export session attendance to PDF file (.pdf).
+    Available to both Professor and Admin.
     """
     session = AttendanceSession.query.get(session_id)
     if not session:
-        return jsonify({'success': False, 'message': 'Session not found'}), 404
+        return jsonify({'success': False, 'message': 'Session not found.'}), 404
 
     records = AttendanceRecord.query.filter_by(session_id=session.id).all()
-    filename = f"Attendance_Report_{session.class_name.replace(' ', '_')}_{session.id}.pdf"
+    filename = f"attendance_session_{session.id}.pdf"
     file_path = os.path.join(Config.EXPORT_DIR, filename)
 
-    export_attendance_to_pdf(session, records, file_path)
+    try:
+        export_attendance_to_pdf(session, records, file_path)
+    except Exception as e:
+        return jsonify({'success': False, 'message': 'Unable to generate report. Please try again.'}), 500
 
     return send_file(
         file_path,
