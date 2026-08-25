@@ -14,7 +14,7 @@ const teacher = {
     },
 
     showTab(tabName) {
-        const tabs = ['Attendance', 'Students', 'Reports'];
+        const tabs = ['Attendance', 'Students', 'UnknownFaces', 'Reports'];
         tabs.forEach(t => {
             const btn = document.getElementById(`tabTeacherBtn${t}`);
             const content = document.getElementById(`teacherTab${t}`);
@@ -30,6 +30,8 @@ const teacher = {
         });
         if (tabName.toLowerCase() === 'students') {
             this.loadStudentsDirectory();
+        } else if (tabName.toLowerCase() === 'unknownfaces') {
+            this.loadUnknownFaces();
         } else if (tabName.toLowerCase() === 'reports') {
             this.loadTeacherSessions();
         }
@@ -331,15 +333,18 @@ const teacher = {
     },
 
     async loadUnknownFaces() {
-        if (!this.activeSessionId) return;
         const gallery = document.getElementById('teacherUnknownFacesGallery');
         if (!gallery) return;
 
         gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">Loading unknown faces...</div>';
 
         try {
+            const url = this.activeSessionId 
+                ? getApiUrl(`/api/unknown_faces?session_id=${this.activeSessionId}`)
+                : getApiUrl('/api/unknown_faces');
+
             const [uRes, sRes] = await Promise.all([
-                fetch(getApiUrl(`/api/unknown_faces?session_id=${this.activeSessionId}`), {
+                fetch(url, {
                     headers: { 'Authorization': `Bearer ${auth.token}` }
                 }),
                 fetch(getApiUrl('/api/students'), {

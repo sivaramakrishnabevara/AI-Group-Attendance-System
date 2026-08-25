@@ -80,7 +80,7 @@ const auth = {
         document.getElementById('userName').innerText = this.user.full_name;
 
         const rolePill = document.getElementById('rolePill');
-        rolePill.innerText = this.user.role;
+        rolePill.innerText = (this.user.role === 'TEACHER') ? 'PROFESSOR' : this.user.role;
         rolePill.className = `role-pill ${this.user.role.toLowerCase()}`;
 
         if (this.user.role === 'ADMIN') {

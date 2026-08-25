@@ -788,28 +788,33 @@ def finalize_session_by_admin(current_user, session_id):
 
     for r in absent_records:
         parent_email = r.student.parent_email if r.student else None
-        if r.student and parent_email:
-            success, msg = send_parent_absent_email(
-                parent_email=parent_email,
-                student_name=r.student.name,
-                roll_no=r.student.roll_no,
-                class_name=session.class_name,
-                date_str=date_str,
-                teacher_name=session.created_by_teacher_name,
-                session_title=session.session_title,
-                session_id=session.id,
-                student_id=r.student_id
-            )
-            email_logs_res.append({
-                'student_name': r.student.name,
-                'parent_email': parent_email,
-                'success': success,
-                'message': msg
-            })
-            if success:
-                r.email_sent = True
-                r.email_sent_at = datetime.now()
-                email_dispatched += 1
+        if not r.student or not parent_email:
+            st_info = r.student.name if r.student else f"Student ID {r.student_id}"
+            import logging
+            logging.getLogger("app").warning(f"Parent email missing for student {st_info}")
+            continue
+
+        success, msg = send_parent_absent_email(
+            parent_email=parent_email,
+            student_name=r.student.name,
+            roll_no=r.student.roll_no,
+            class_name=session.class_name,
+            date_str=date_str,
+            teacher_name=session.created_by_teacher_name,
+            session_title=session.session_title,
+            session_id=session.id,
+            student_id=r.student_id
+        )
+        email_logs_res.append({
+            'student_name': r.student.name,
+            'parent_email': parent_email,
+            'success': success,
+            'message': msg
+        })
+        if success:
+            r.email_sent = True
+            r.email_sent_at = datetime.now()
+            email_dispatched += 1
 
     db.session.commit()
 
@@ -944,16 +949,18 @@ def admin_unknown_face_action(current_user, undetected_id):
     })
 
 # -------------------------------------------------------------------
-# System SMS Settings Routes (Admin & Teacher)
+# System SMS Settings Routes (Admin Only)
 # -------------------------------------------------------------------
 @app.route('/api/admin/settings/sms', methods=['GET'])
 @token_required
+@admin_only
 def get_sms_settings_route(current_user):
     conf = get_sms_config()
     return jsonify({'success': True, 'settings': conf})
 
 @app.route('/api/admin/settings/sms', methods=['POST'])
 @token_required
+@admin_only
 def update_sms_settings_route(current_user):
     data = request.get_json() or {}
     sms_mode = data.get('sms_mode', 'SIMULATION').strip().upper()
@@ -991,9 +998,8 @@ def update_sms_settings_route(current_user):
 
 @app.route('/api/admin/sms_logs', methods=['GET'])
 @token_required
+@admin_only
 def get_sms_logs_route(current_user):
-    if current_user.role != 'ADMIN':
-        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     logs = SMSLog.query.order_by(SMSLog.timestamp.desc()).limit(200).all()
     return jsonify({
         'success': True,
@@ -1002,6 +1008,7 @@ def get_sms_logs_route(current_user):
 
 @app.route('/api/admin/settings/email', methods=['GET'])
 @token_required
+@admin_only
 def get_email_settings_route(current_user):
     conf = get_email_config()
     # Mask password for security
@@ -1012,9 +1019,8 @@ def get_email_settings_route(current_user):
 
 @app.route('/api/admin/settings/email', methods=['POST'])
 @token_required
+@admin_only
 def update_email_settings_route(current_user):
-    if current_user.role != 'ADMIN':
-        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     data = request.get_json() or {}
     enable_email = data.get('enable_email_alerts', True)
     gmail_email = data.get('gmail_email', '').strip()
@@ -1043,9 +1049,8 @@ def update_email_settings_route(current_user):
 
 @app.route('/api/admin/email_logs', methods=['GET'])
 @token_required
+@admin_only
 def get_email_logs_route(current_user):
-    if current_user.role != 'ADMIN':
-        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     logs = EmailLog.query.order_by(EmailLog.timestamp.desc()).limit(200).all()
     return jsonify({
         'success': True,
@@ -1054,21 +1059,21 @@ def get_email_logs_route(current_user):
 
 @app.route('/api/admin/settings/test_email', methods=['POST'])
 @token_required
+@admin_only
 def send_test_email_route(current_user):
-    if current_user.role != 'ADMIN':
-        return jsonify({'success': False, 'message': 'Admin access required'}), 403
     data = request.get_json() or {}
     target_email = (data.get('email') or data.get('target_email') or '').strip()
     if not target_email:
         return jsonify({'success': False, 'message': 'Target email address is required'}), 400
     if not validate_email_address(target_email):
-        return jsonify({'success': False, 'message': 'Invalid target email address format'}), 400
+        return jsonify({'success': False, 'message': 'Invalid recipient email.'}), 400
 
     success, msg = send_test_email(target_email, current_user.full_name)
     return jsonify({'success': success, 'message': msg})
 
 @app.route('/api/admin/settings/test_sms', methods=['POST'])
 @token_required
+@admin_only
 def send_test_sms_route(current_user):
     data = request.get_json() or {}
     target_phone = data.get('target_phone', '').strip()

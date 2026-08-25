@@ -90,7 +90,7 @@ const admin = {
                         </div>
                         <img src="${getApiUrl('/' + uf.image_path.replace(/^\//, ''))}" style="width:100%; height:140px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--border-glass);" />
                         <div style="font-size:0.82rem; margin-top:0.4rem;"><strong>Suggested Student:</strong> ${uf.claimed_student_name || 'Unassigned'}</div>
-                        <div style="font-size:0.78rem; color:var(--text-muted);">Teacher: ${uf.claimed_by_teacher_name || 'N/A'} | Time: ${uf.timestamp}</div>
+                        <div style="font-size:0.78rem; color:var(--text-muted);">Professor: ${uf.claimed_by_teacher_name || 'N/A'} | Time: ${uf.timestamp}</div>
                         ${actionsHtml}
                     `;
                     gallery.appendChild(card);
@@ -329,7 +329,7 @@ const admin = {
         tbody.innerHTML = '';
 
         if (!teachers || teachers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No faculty teachers found. Click "Add New Teacher" to create one.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No faculty professors found. Click "Add New Professor" to create one.</td></tr>';
             return;
         }
 
@@ -340,7 +340,7 @@ const admin = {
                 <td><strong>${t.full_name}</strong></td>
                 <td><code>${t.username}</code></td>
                 <td>${t.email}</td>
-                <td><span class="role-pill teacher">TEACHER</span></td>
+                <td><span class="role-pill teacher">PROFESSOR</span></td>
                 <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <button onclick="admin.openEditTeacherModal(${t.id}, '${t.full_name.replace(/'/g, "\\'") }', '${t.username}', '${t.email}')" class="btn btn-outline btn-sm">
                         <i class="fa-solid fa-pen-to-square"></i> Edit
@@ -400,7 +400,7 @@ const admin = {
                 this.closeEditTeacherModal();
                 this.loadTeachers();
             } else {
-                alert(data.message || 'Failed to update teacher');
+                alert(data.message || 'Failed to update professor');
             }
         } catch (err) {
             alert('Error connecting to server.');
@@ -430,7 +430,7 @@ const admin = {
                 this.closeAddTeacherModal();
                 this.loadTeachers();
             } else {
-                alert(data.message || 'Failed to add teacher');
+                alert(data.message || 'Failed to add professor');
             }
         } catch (err) {
             alert('Error connecting to server.');
@@ -438,7 +438,7 @@ const admin = {
     },
 
     async deleteTeacher(id) {
-        if (!confirm("Are you sure you want to delete this teacher account?")) return;
+        if (!confirm("Are you sure you want to delete this professor account?")) return;
         try {
             const res = await fetch(getApiUrl(`/api/teachers/${id}`), {
                 method: 'DELETE',
@@ -452,7 +452,7 @@ const admin = {
                 alert(data.message);
             }
         } catch (err) {
-            alert("Server error deleting teacher.");
+            alert("Server error deleting professor.");
         }
     },
 
@@ -673,7 +673,7 @@ const admin = {
                     card.innerHTML = `
                         <img src="${getApiUrl(uf.image_path)}" class="face-thumb" />
                         <div style="font-size: 0.8rem; font-weight: bold; margin-top: 0.3rem;">Mapped: ${uf.claimed_student_name || 'Student'}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem;">Submitted by: ${uf.claimed_by_teacher_name || 'Teacher'}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem;">Submitted by: ${uf.claimed_by_teacher_name || 'Professor'}</div>
                         ${statusBadge}
                     `;
                     gallery.appendChild(card);
@@ -816,17 +816,22 @@ const admin = {
     },
 
     async loadAdminReports() {
+        const tbody = document.getElementById('adminReportsTableBody');
         try {
             const res = await fetch(getApiUrl('/api/sessions'), {
                 headers: { 'Authorization': `Bearer ${auth.token}` }
             });
             const data = await res.json();
-            if (data.success) {
-                document.getElementById('adminCountSessions').innerText = data.sessions.length;
+            if (data && data.success && Array.isArray(data.sessions)) {
+                const countEl = document.getElementById('adminCountSessions');
+                if (countEl) countEl.innerText = data.sessions.length;
                 this.renderAdminReportsTable(data.sessions);
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load attendance sessions. Please try again.</td></tr>';
             }
         } catch (err) {
             console.error("Error loading admin reports:", err);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load attendance sessions. Please try again.</td></tr>';
         }
     },
 
@@ -836,7 +841,7 @@ const admin = {
         tbody.innerHTML = '';
 
         if (!sessions || sessions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-muted);">No attendance records found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 2rem;">No attendance sessions found.</td></tr>';
             return;
         }
 
@@ -854,34 +859,45 @@ const admin = {
                 statusBadge = `<span class="badge-status badge-pending">${s.status}</span>`;
             }
 
+            // Extract Date and Time from created_at string
+            let dateStr = 'N/A';
+            let timeStr = 'N/A';
+            if (s.created_at) {
+                const parts = s.created_at.split(' ');
+                if (parts.length >= 1) dateStr = parts[0];
+                if (parts.length >= 2) timeStr = parts.slice(1).join(' ');
+            }
+
+            const profName = s.created_by_teacher_name ? `Prof. ${s.created_by_teacher_name}` : 'N/A';
+            const pendingCount = s.pending_approval_count || 0;
+
+            let actionsHtml = '';
+            if (!isFinalized) {
+                actionsHtml = `
+                    <button onclick="admin.viewSessionClaims(${s.id})" class="btn btn-purple btn-sm" style="margin-right: 0.3rem;">
+                        <i class="fa-solid fa-clipboard-check"></i> REVIEW ATTENDANCE
+                    </button>
+                    <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm btn-3d">
+                        <i class="fa-solid fa-circle-check"></i> FINALIZE ATTENDANCE
+                    </button>
+                `;
+            } else {
+                actionsHtml = `
+                    <span class="badge-status badge-present">FINALIZED</span>
+                `;
+            }
+
             tr.innerHTML = `
-                <td><strong>#S-${String(s.id).padStart(3, '0')}</strong><br><span style="font-size:0.85rem; color:var(--neon-cyan);">${s.session_title}</span></td>
+                <td><strong>#S-${String(s.id).padStart(3, '0')}</strong></td>
+                <td>${dateStr}</td>
+                <td>${timeStr}</td>
+                <td>${profName}</td>
                 <td>${s.class_name}</td>
-                <td>Prof. ${s.created_by_teacher_name}</td>
-                <td>${s.created_at}</td>
-                <td>
-                    <span style="color:var(--neon-emerald); font-weight:bold;">${s.present_count} Present</span> / 
-                    <span style="color:#ef4444; font-weight:bold;">${s.absent_count} Absent</span>
-                </td>
+                <td><span style="color:var(--neon-emerald); font-weight:bold;">${s.present_count}</span></td>
+                <td><span style="color:#ef4444; font-weight:bold;">${s.absent_count}</span></td>
+                <td><span style="color:var(--neon-cyan); font-weight:bold;">${pendingCount}</span></td>
                 <td>${statusBadge}</td>
-                <td style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
-                    ${!isFinalized ? `
-                        <button onclick="admin.viewSessionClaims(${s.id})" class="btn btn-purple btn-sm">
-                            <i class="fa-solid fa-clipboard-check"></i> REVIEW ATTENDANCE
-                        </button>
-                        <button onclick="admin.finalizeSessionByAdmin(${s.id})" class="btn btn-emerald btn-sm btn-3d">
-                            <i class="fa-solid fa-circle-check"></i> FINALIZE ATTENDANCE
-                        </button>
-                    ` : `
-                        <span class="badge-status badge-present" style="margin-right: 0.5rem;">✓ FINALIZED</span>
-                    `}
-                    <a href="/api/export/excel/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" onclick="teacher.downloadReport(event, ${s.id}, 'excel')">
-                        <i class="fa-solid fa-file-excel"></i> Excel
-                    </a>
-                    <a href="/api/export/pdf/${s.id}?token=${auth.token}" target="_blank" class="btn btn-outline btn-sm" onclick="teacher.downloadReport(event, ${s.id}, 'pdf')">
-                        <i class="fa-solid fa-file-pdf"></i> PDF
-                    </a>
-                </td>
+                <td style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">${actionsHtml}</td>
             `;
             tbody.appendChild(tr);
         });

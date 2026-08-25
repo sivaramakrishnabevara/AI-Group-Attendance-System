@@ -66,13 +66,13 @@
                             <i class="fa-solid fa-shield-halved"></i>
                         </div>
                         <h2 style="font-family: var(--font-heading); font-size: 1.75rem;" class="text-glow-cyan">System Authentication</h2>
-                        <p style="color: var(--text-muted); font-size: 0.9rem;">Sign in as Admin or Teacher</p>
+                        <p style="color: var(--text-muted); font-size: 0.9rem;">Sign in as Admin or Professor</p>
                     </div>
 
                     <form id="loginForm" onsubmit="auth.handleLogin(event)">
                         <div class="form-group">
                             <label class="form-label"><i class="fa-solid fa-user"></i> Username</label>
-                            <input type="text" id="loginUsername" class="form-control" placeholder="Enter username (e.g. admin or teacher)" required>
+                            <input type="text" id="loginUsername" class="form-control" placeholder="Enter username (e.g. admin or professor)" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label"><i class="fa-solid fa-lock"></i> Password</label>
@@ -91,7 +91,7 @@
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;" class="anim-enter">
                     <div>
                         <h1 style="font-family: var(--font-heading); font-size: 2rem;" class="text-glow-purple">Administrator Control Panel</h1>
-                        <p style="color: var(--text-muted);">Manage teachers, students, manual attendance approvals, and system reports.</p>
+                        <p style="color: var(--text-muted);">Manage professors, students, manual attendance approvals, and system reports.</p>
                     </div>
                     <span class="role-pill admin badge-3d"><i class="fa-solid fa-user-gear"></i> Admin Access</span>
                 </div>
@@ -102,7 +102,7 @@
                         <div class="stat-icon purple"><i class="fa-solid fa-chalkboard-user"></i></div>
                         <div>
                             <div class="stat-value" id="adminCountTeachers">0</div>
-                            <div class="stat-label">Total Teachers</div>
+                            <div class="stat-label">Total Professors</div>
                         </div>
                     </div>
                     <div class="glass-card stat-card stat-card-3d tilt-3d holo-shimmer anim-enter anim-delay-2">
@@ -130,7 +130,7 @@
 
                 <!-- Admin Tabs -->
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; flex-wrap: wrap;" class="anim-enter anim-delay-2">
-                    <button onclick="admin.showTab('teachers')" id="tabBtnTeachers" class="btn btn-outline tab-3d active"><i class="fa-solid fa-users"></i> Manage Teachers</button>
+                    <button onclick="admin.showTab('teachers')" id="tabBtnTeachers" class="btn btn-outline tab-3d active"><i class="fa-solid fa-users"></i> Manage Professors</button>
                     <button onclick="admin.showTab('students')" id="tabBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Manage Students</button>
                     <button onclick="admin.showTab('unknownfaces')" id="tabBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-check"></i> Unknown Face Approval</button>
                     <button onclick="admin.showTab('reports')" id="tabBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-clock-rotate-left"></i> Attendance Finalization & History</button>
@@ -142,7 +142,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <div>
                             <h3><i class="fa-solid fa-user-check" style="color: var(--neon-cyan);"></i> Unknown Face Assignment Approval</h3>
-                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review teacher manual unknown face mappings and approve/reject before final attendance is recorded.</p>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review professor manual unknown face mappings and approve/reject before final attendance is recorded.</p>
                         </div>
                         <button onclick="admin.loadUnknownFaceApprovals()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh List</button>
                     </div>
@@ -152,8 +152,8 @@
                 <!-- Admin Tab Content: Teachers -->
                 <div id="adminTabTeachers" class="glass-card holo-shimmer">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3>Faculty Teachers List</h3>
-                        <button onclick="admin.openAddTeacherModal()" class="btn btn-purple"><i class="fa-solid fa-user-plus"></i> Add New Teacher</button>
+                        <h3>Faculty Professors List</h3>
+                        <button onclick="admin.openAddTeacherModal()" class="btn btn-purple"><i class="fa-solid fa-user-plus"></i> Add New Professor</button>
                     </div>
                     <div class="table-responsive">
                         <table class="custom-table">
@@ -197,17 +197,21 @@
 
                 <!-- Admin Tab Content: Reports -->
                 <div id="adminTabReports" class="glass-card holo-shimmer" style="display: none;">
-                    <h3 style="margin-bottom: 1.5rem;"><i class="fa-solid fa-file-invoice"></i> Attendance History & Download Exports</h3>
+                    <h3 style="margin-bottom: 1.5rem;"><i class="fa-solid fa-file-invoice"></i> Attendance Finalization & History</h3>
                     <div class="table-responsive">
                         <table class="custom-table">
                             <thead>
                                 <tr>
-                                    <th>Session Title</th>
+                                    <th>Session ID</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Professor</th>
                                     <th>Class</th>
-                                    <th>Conducted By</th>
-                                    <th>Date & Time</th>
-                                    <th>Present / Total</th>
-                                    <th>Finalize & SMS / Export Downloads</th>
+                                    <th>Present Count</th>
+                                    <th>Absent Count</th>
+                                    <th>Pending Approval Count</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="adminReportsTableBody"></tbody>
@@ -306,24 +310,25 @@
                 </div>
             </section>
 
-            <!-- ================= TEACHER DASHBOARD ================= -->
+            <!-- ================= PROFESSOR DASHBOARD ================= -->
             <section id="teacherDashboard" style="display: none;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;" class="anim-enter">
                     <div>
-                        <h1 style="font-family: var(--font-heading); font-size: 2rem;" class="text-glow-cyan">Teacher Attendance Portal</h1>
-                        <p style="color: var(--text-muted);">Conduct live AI face recognition attendance, register students, and view reports.</p>
+                        <h1 style="font-family: var(--font-heading); font-size: 2rem;" class="text-glow-cyan">Professor Attendance Portal</h1>
+                        <p style="color: var(--text-muted);">Conduct live AI face recognition attendance, register students, and view session reports.</p>
                     </div>
-                    <span class="role-pill teacher badge-3d"><i class="fa-solid fa-chalkboard-user"></i> Faculty Portal</span>
+                    <span class="role-pill teacher badge-3d"><i class="fa-solid fa-chalkboard-user"></i> Professor Access</span>
                 </div>
 
-                <!-- Teacher Sub-Navigation Tabs -->
+                <!-- Professor Sub-Navigation Tabs -->
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; flex-wrap: wrap;" class="anim-enter anim-delay-2">
-                    <button onclick="teacher.showTab('attendance')" id="tabTeacherBtnAttendance" class="btn btn-outline tab-3d active"><i class="fa-solid fa-camera-retro"></i> 🤖 Take Attendance</button>
+                    <button onclick="teacher.showTab('attendance')" id="tabTeacherBtnAttendance" class="btn btn-outline tab-3d active"><i class="fa-solid fa-camera-retro"></i> 🤖 Live Attendance</button>
                     <button onclick="teacher.showTab('students')" id="tabTeacherBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Enrolled Students</button>
+                    <button onclick="teacher.showTab('unknownfaces')" id="tabTeacherBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-secret"></i> Unknown Faces / Review</button>
                     <button onclick="teacher.showTab('reports')" id="tabTeacherBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-file-export"></i> Sessions & Downloads</button>
                 </div>
 
-                <!-- Teacher Tab: Take Attendance -->
+                <!-- Professor Tab: Take Attendance -->
                 <div id="teacherTabAttendance">
                     <div class="glass-card glow-border-cyan" style="margin-bottom: 2rem; text-align: center; padding: 2.5rem; background: rgba(13,20,36,0.85);">
                         <h2 style="font-family: var(--font-heading); margin-bottom: 0.6rem; color: #ffffff; font-size: 1.8rem;" class="text-glow-cyan">
@@ -383,19 +388,22 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Teacher Unknown Faces Gallery -->
-                        <div style="margin-top: 2rem; border-top: 1px solid var(--border-glass); padding-top: 1.5rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                                <h4><i class="fa-solid fa-user-secret" style="color: var(--neon-cyan);"></i> Session Unknown Faces (Requires Manual Assignment)</h4>
-                                <button onclick="teacher.loadUnknownFaces()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh Unknown Faces</button>
-                            </div>
-                            <div id="teacherUnknownFacesGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem;"></div>
-                        </div>
                     </div>
                 </div>
 
-                <!-- Teacher Tab: Students Directory -->
+                <!-- Professor Tab: Unknown Faces Review (Manual Assignment AFTER Session) -->
+                <div id="teacherTabUnknownFaces" class="glass-card holo-shimmer" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div>
+                            <h3><i class="fa-solid fa-user-secret" style="color: var(--neon-cyan);"></i> Unknown Faces / Review</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Review captured unknown faces after attendance and submit manual student assignments for Admin approval.</p>
+                        </div>
+                        <button onclick="teacher.loadUnknownFaces()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh Unknown Faces</button>
+                    </div>
+                    <div id="teacherUnknownFacesGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;"></div>
+                </div>
+
+                <!-- Professor Tab: Students Directory -->
                 <div id="teacherTabStudents" class="glass-card holo-shimmer" style="display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <h3>Enrolled Class Students Directory</h3>
@@ -418,7 +426,7 @@
                     </div>
                 </div>
 
-                <!-- Teacher Tab: Sessions & Reports -->
+                <!-- Professor Tab: Sessions & Reports -->
                 <div id="teacherTabReports" class="glass-card holo-shimmer" style="display: none;">
                     <h3 style="margin-bottom: 1.5rem;"><i class="fa-solid fa-list-check"></i> Recent Attendance Sessions & Export Downloads</h3>
                     <div class="table-responsive">
@@ -443,11 +451,11 @@
 
     <!-- ================= MODALS ================= -->
 
-    <!-- Add Teacher Modal (Admin) -->
+    <!-- Add Professor Modal (Admin) -->
     <div id="addTeacherModal" class="modal-overlay">
         <div class="modal-container">
             <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-user-plus"></i> Add New Faculty Teacher</h3>
+                <h3 class="modal-title"><i class="fa-solid fa-user-plus"></i> Add New Faculty Professor</h3>
                 <button onclick="admin.closeAddTeacherModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <form onsubmit="admin.handleAddTeacher(event)">
@@ -467,16 +475,16 @@
                     <label class="form-label">Password</label>
                     <input type="password" id="tPassword" class="form-control" required placeholder="Assign password">
                 </div>
-                <button type="submit" class="btn btn-purple" style="width: 100%;"><i class="fa-solid fa-check"></i> Save Teacher</button>
+                <button type="submit" class="btn btn-purple" style="width: 100%;"><i class="fa-solid fa-check"></i> Save Professor</button>
             </form>
         </div>
     </div>
 
-    <!-- Edit Teacher Modal (Admin) -->
+    <!-- Edit Professor Modal (Admin) -->
     <div id="editTeacherModal" class="modal-overlay">
         <div class="modal-container">
             <div class="modal-header">
-                <h3 class="modal-title"><i class="fa-solid fa-user-pen"></i> Edit Faculty Teacher</h3>
+                <h3 class="modal-title"><i class="fa-solid fa-user-pen"></i> Edit Faculty Professor</h3>
                 <button onclick="admin.closeEditTeacherModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <form onsubmit="admin.handleEditTeacher(event)">
@@ -497,7 +505,7 @@
                     <label class="form-label"><i class="fa-solid fa-lock"></i> New Password <span style="color: var(--text-dim); font-weight: 400;">(leave blank to keep current)</span></label>
                     <input type="password" id="editTPassword" class="form-control" placeholder="Leave blank to keep unchanged">
                 </div>
-                <button type="submit" class="btn btn-purple btn-3d" style="width: 100%;"><i class="fa-solid fa-floppy-disk"></i> Update Teacher</button>
+                <button type="submit" class="btn btn-purple btn-3d" style="width: 100%;"><i class="fa-solid fa-floppy-disk"></i> Update Professor</button>
             </form>
         </div>
     </div>

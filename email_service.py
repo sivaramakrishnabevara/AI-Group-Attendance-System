@@ -89,33 +89,32 @@ def _record_email_log(session_id, student_id, student_name, roll_no, parent_emai
     except Exception as e:
         logger.error(f"Failed to save email log: {e}")
 
-def send_parent_absent_email(parent_email, student_name, roll_no, class_name, date_str, teacher_name='Teacher', session_title='Session', session_id=None, student_id=None, force_test=False):
+def send_parent_absent_email(parent_email, student_name, roll_no, class_name, date_str, teacher_name='Professor', session_title='Session', session_id=None, student_id=None, force_test=False):
     """
     Sends an automated parent absence email notification via Gmail SMTP (smtp.gmail.com:587 TLS).
     Does NOT log or expose Google App Passwords.
     """
     if not validate_email_address(parent_email):
-        msg = f"Invalid parent email address syntax: {parent_email}"
-        logger.warning(f"[EMAIL FAILED] {msg}")
+        msg = "Invalid recipient email."
+        logger.warning(f"[GMAIL] Email failed: {msg} ({parent_email})")
         return False, msg
 
     conf = get_email_config()
 
     if not force_test and not conf['enable_email_alerts']:
         msg = "Email alerts are disabled in system settings."
-        logger.info(f"[EMAIL DISABLED] {msg}")
+        logger.info(f"[GMAIL] Email disabled: {msg}")
         return False, msg
 
     subject = f"Attendance Alert - {student_name} Marked Absent"
     body_text = (
         f"Dear Parent,\n\n"
-        f"This is to inform you that your child:\n"
-        f"  Student Name: {student_name}\n"
-        f"  Roll Number: {roll_no}\n"
-        f"  Class: {class_name}\n"
-        f"  Date: {date_str}\n"
-        f"  Attendance Status: ABSENT\n\n"
-        f"Your child was marked absent during today's attendance session.\n"
+        f"This is to inform you that your child was marked ABSENT.\n\n"
+        f"Student Name: {student_name}\n"
+        f"Roll Number: {roll_no}\n"
+        f"Class: {class_name}\n"
+        f"Date: {date_str}\n"
+        f"Attendance Status: ABSENT\n\n"
         f"Please contact the institution if this absence is unexpected.\n\n"
         f"Regards,\n"
         f"AI Group Attendance System"
@@ -124,8 +123,8 @@ def send_parent_absent_email(parent_email, student_name, roll_no, class_name, da
     masked_target = mask_email(parent_email)
 
     if not conf['has_credentials']:
-        msg = "Gmail SMTP is not configured."
-        logger.warning(f"[EMAIL CONFIG ERROR] Gmail credentials missing for target {masked_target}")
+        msg = "Gmail credentials are missing."
+        logger.warning(f"[GMAIL] Email failed: {msg} for {masked_target}")
         _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
         return False, msg
 
@@ -136,39 +135,48 @@ def send_parent_absent_email(parent_email, student_name, roll_no, class_name, da
         msg_mime['Subject'] = subject
         msg_mime.attach(MIMEText(body_text, 'plain'))
 
+        logger.info(f"[GMAIL] SMTP connection started for {masked_target}")
         server = smtplib.SMTP(conf['smtp_server'], conf['smtp_port'], timeout=12)
         server.starttls()
+        
+        logger.info(f"[GMAIL] Authentication started")
         server.login(conf['gmail_email'], conf['gmail_app_password'])
+        logger.info(f"[GMAIL] Authentication successful")
+        
+        logger.info(f"[GMAIL] Sending email to {masked_target}")
         server.send_message(msg_mime)
         server.quit()
 
-        logger.info(f"[EMAIL SUCCESS] Parent email sent successfully to {masked_target}")
+        logger.info(f"[GMAIL] Email accepted for {masked_target}")
         _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'SENT')
-        return True, f"Parent email sent successfully to {masked_target}"
+        return True, "Test email sent successfully." if force_test else f"Parent email sent successfully to {masked_target}"
 
     except smtplib.SMTPAuthenticationError:
-        err_msg = "Gmail authentication failed. Please check GMAIL_EMAIL and GMAIL_APP_PASSWORD."
-        logger.error(f"[EMAIL FAILED] {err_msg} for {masked_target}")
+        err_msg = "Gmail authentication failed."
+        logger.error(f"[GMAIL] Email failed: {err_msg} for {masked_target}")
         _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
         return False, err_msg
     except smtplib.SMTPConnectError:
-        err_msg = "Gmail SMTP connection failed. Please check network connection or SMTP port 587."
-        logger.error(f"[EMAIL FAILED] {err_msg}")
+        err_msg = "Gmail SMTP connection failed."
+        logger.error(f"[GMAIL] Email failed: {err_msg}")
         _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
         return False, err_msg
     except Exception as e:
-        err_msg = f"Parent email failed: {str(e)}"
-        logger.error(f"[EMAIL FAILED] {err_msg} for {masked_target}")
+        err_msg = f"Gmail SMTP error: {str(e)}"
+        logger.error(f"[GMAIL] Email failed: {err_msg} for {masked_target}")
         _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
-        return False, err_msg
+        return False, f"Gmail SMTP connection failed."
 
 def send_test_email(target_email, teacher_name='Admin'):
     """
     Sends a test email notification to verify Gmail SMTP configuration.
     """
+    if not validate_email_address(target_email):
+        return False, "Invalid recipient email."
+
     conf = get_email_config()
     if not conf['has_credentials']:
-        return False, "Gmail SMTP is not configured."
+        return False, "Gmail credentials are missing."
 
     subject = "AI Group Attendance System - Test Email"
     body_text = "This is a test email from the AI Group Attendance System."
@@ -181,22 +189,33 @@ def send_test_email(target_email, teacher_name='Admin'):
         msg_mime['Subject'] = subject
         msg_mime.attach(MIMEText(body_text, 'plain'))
 
+        logger.info(f"[GMAIL] SMTP connection started for test email to {masked_target}")
         server = smtplib.SMTP(conf['smtp_server'], conf['smtp_port'], timeout=12)
         server.starttls()
+
+        logger.info(f"[GMAIL] Authentication started")
         server.login(conf['gmail_email'], conf['gmail_app_password'])
+        logger.info(f"[GMAIL] Authentication successful")
+
+        logger.info(f"[GMAIL] Sending email to {masked_target}")
         server.send_message(msg_mime)
         server.quit()
 
-        logger.info(f"[TEST EMAIL SUCCESS] Test email sent successfully to {masked_target}")
+        logger.info(f"[GMAIL] Email accepted for {masked_target}")
         _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, 'SENT')
-        return True, f"Test email sent successfully to {masked_target}"
+        return True, "Test email sent successfully."
     except smtplib.SMTPAuthenticationError:
-        err_msg = "Gmail authentication failed. Please check GMAIL_EMAIL and GMAIL_APP_PASSWORD."
-        logger.error(f"[TEST EMAIL FAILED] {err_msg}")
+        err_msg = "Gmail authentication failed."
+        logger.error(f"[GMAIL] Email failed: {err_msg}")
+        _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, 'FAILED')
+        return False, err_msg
+    except smtplib.SMTPConnectError:
+        err_msg = "Gmail SMTP connection failed."
+        logger.error(f"[GMAIL] Email failed: {err_msg}")
         _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, 'FAILED')
         return False, err_msg
     except Exception as e:
-        err_msg = f"Gmail SMTP connection failed: {str(e)}"
-        logger.error(f"[TEST EMAIL FAILED] {err_msg}")
+        err_msg = f"Gmail SMTP connection failed."
+        logger.error(f"[GMAIL] Email failed: {str(e)}")
         _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, 'FAILED')
         return False, err_msg
