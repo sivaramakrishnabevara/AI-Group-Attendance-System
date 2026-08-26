@@ -1023,10 +1023,11 @@ def get_sms_logs_route(current_user):
 @admin_only
 def get_email_settings_route(current_user):
     conf = get_email_config()
-    # Mask password for security
     conf_safe = dict(conf)
     if conf_safe.get('gmail_app_password'):
         conf_safe['gmail_app_password_masked'] = "••••••••••••••••"
+    if conf_safe.get('email_api_key'):
+        conf_safe['email_api_key_masked'] = "••••••••••••••••"
     return jsonify({'success': True, 'settings': conf_safe})
 
 @app.route('/api/admin/settings/email', methods=['POST'])
@@ -1035,17 +1036,28 @@ def get_email_settings_route(current_user):
 def update_email_settings_route(current_user):
     data = request.get_json() or {}
     enable_email = data.get('enable_email_alerts', True)
-    gmail_email = data.get('gmail_email', '').strip()
-    gmail_app_password = data.get('gmail_app_password', '').strip()
+    email_mode = str(data.get('email_mode', 'API')).strip().upper()
+    email_provider = str(data.get('email_provider', 'RESEND')).strip().upper()
+    email_api_key = str(data.get('email_api_key', '')).strip()
+    email_from = str(data.get('email_from', '')).strip()
+    gmail_email = str(data.get('gmail_email', '')).strip()
+    gmail_app_password = str(data.get('gmail_app_password', '')).strip()
 
+    if email_from and not validate_email_address(email_from):
+        return jsonify({'success': False, 'message': 'Invalid sender email address syntax'}), 400
     if gmail_email and not validate_email_address(gmail_email):
         return jsonify({'success': False, 'message': 'Invalid Gmail email address syntax'}), 400
 
     settings_map = {
         'enable_email_alerts': 'true' if enable_email else 'false',
+        'email_mode': email_mode,
+        'email_provider': email_provider,
+        'email_from': email_from,
         'gmail_email': gmail_email
     }
-    # Only update password if non-empty
+
+    if email_api_key and email_api_key != "••••••••••••••••":
+        settings_map['email_api_key'] = email_api_key
     if gmail_app_password and gmail_app_password != "••••••••••••••••":
         settings_map['gmail_app_password'] = gmail_app_password
 
@@ -1057,7 +1069,7 @@ def update_email_settings_route(current_user):
         s_obj.value = str(val)
 
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Gmail SMTP settings saved successfully.'})
+    return jsonify({'success': True, 'message': 'Email configuration settings saved successfully.'})
 
 @app.route('/api/admin/email_logs', methods=['GET'])
 @token_required

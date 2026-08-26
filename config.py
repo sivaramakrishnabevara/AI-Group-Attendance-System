@@ -33,8 +33,14 @@ class Config:
     SESSION_SNAPSHOTS_DIR = os.path.join(DATA_DIR, 'dataset', 'session_snapshots')
     EXPORT_DIR = os.path.join(DATA_DIR, 'dataset', 'exports')
     
-    # Gmail SMTP Configuration for Parent Absence Alerts
+    # HTTPS Transactional Email API Configuration (Render Production) & Local SMTP Fallback
     ENABLE_EMAIL_ALERTS = os.environ.get('ENABLE_EMAIL_ALERTS', 'True').lower() in ('true', '1', 't')
+    EMAIL_MODE = os.environ.get('EMAIL_MODE', 'API').upper() # 'API' (Render Production) or 'SMTP' (Local Dev)
+    EMAIL_PROVIDER = os.environ.get('EMAIL_PROVIDER', 'RESEND').upper() # 'RESEND', 'BREVO', 'SENDGRID'
+    EMAIL_API_KEY = os.environ.get('EMAIL_API_KEY', '')
+    EMAIL_FROM = os.environ.get('EMAIL_FROM', os.environ.get('GMAIL_EMAIL', 'onboarding@resend.dev'))
+
+    # Legacy Local Gmail SMTP Configuration (Optional Local Dev Mode)
     GMAIL_EMAIL = os.environ.get('GMAIL_EMAIL', '')
     GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD', '')
     SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')

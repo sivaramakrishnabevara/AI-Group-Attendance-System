@@ -241,7 +241,7 @@
                 <div id="adminTabEmail" class="glass-card holo-shimmer" style="display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
                         <div>
-                            <h3 style="margin-bottom: 0.3rem;"><i class="fa-solid fa-envelope" style="color: var(--neon-cyan);"></i> Parent Absence Email Alerts (Gmail SMTP)</h3>
+                            <h3 style="margin-bottom: 0.3rem;"><i class="fa-solid fa-envelope" style="color: var(--neon-cyan);"></i> Parent Absence Email Alerts (HTTPS API)</h3>
                             <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Automated parent absence email notification system triggered upon Admin attendance finalization.</p>
                         </div>
                         
@@ -250,7 +250,7 @@
                             <i class="fa-solid fa-shield-halved" style="color: var(--neon-cyan); font-size: 1.3rem;"></i>
                             <div>
                                 <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 700;">Primary Notification Gateway</div>
-                                <div id="emailModeBadgeDisplay" style="font-weight: 800; color: var(--neon-cyan); font-size: 1rem;">Gmail SMTP Server</div>
+                                <div id="emailModeBadgeDisplay" style="font-weight: 800; color: var(--neon-cyan); font-size: 1rem;">HTTPS Email Provider API</div>
                             </div>
                         </div>
                     </div>
@@ -259,19 +259,52 @@
                         <!-- Left Form: Configuration -->
                         <form id="emailSettingsForm" onsubmit="admin.handleSaveEmailSettings(event)">
                             <div class="form-group">
-                                <label class="form-label"><i class="fa-solid fa-at"></i> Gmail Sender Address (GMAIL_EMAIL)</label>
-                                <input type="email" id="gmailEmailInput" class="form-control" placeholder="e.g. yourproject@gmail.com">
-                                <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
-                                    * The Gmail account used to send parent absence notifications.
-                                </small>
+                                <label class="form-label"><i class="fa-solid fa-sliders"></i> Email Gateway Mode (EMAIL_MODE)</label>
+                                <select id="emailModeSelect" class="form-control" onchange="admin.toggleEmailModeFields()">
+                                    <option value="API" selected>HTTPS API (Render Production - Port 443)</option>
+                                    <option value="SMTP">Gmail SMTP (Local Development Only - Port 587)</option>
+                                </select>
                             </div>
 
-                            <div class="form-group">
-                                <label class="form-label"><i class="fa-solid fa-key"></i> 16-Character Google App Password (GMAIL_APP_PASSWORD)</label>
-                                <input type="password" id="gmailAppPasswordInput" class="form-control" placeholder="Enter 16-character App Password">
-                                <small style="color: var(--neon-emerald); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
-                                    * Generate at: Google Account -> Security -> 2-Step Verification -> App Passwords.
-                                </small>
+                            <!-- HTTPS API Fields -->
+                            <div id="emailApiFieldsGroup">
+                                <div class="form-group">
+                                    <label class="form-label"><i class="fa-solid fa-server"></i> API Provider (EMAIL_PROVIDER)</label>
+                                    <select id="emailProviderSelect" class="form-control">
+                                        <option value="RESEND" selected>Resend (https://api.resend.com/emails)</option>
+                                        <option value="BREVO">Brevo / Sendinblue (https://api.brevo.com/v3/smtp/email)</option>
+                                        <option value="SENDGRID">SendGrid (https://api.sendgrid.com/v3/mail/send)</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label"><i class="fa-solid fa-paper-plane"></i> Verified Sender Email (EMAIL_FROM)</label>
+                                    <input type="email" id="emailFromInput" class="form-control" placeholder="e.g. onboarding@resend.dev or verified@yourdomain.com">
+                                    <small style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
+                                        * Sender address authorized in provider dashboard.
+                                    </small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label"><i class="fa-solid fa-key"></i> Provider Secret API Key (EMAIL_API_KEY)</label>
+                                    <input type="password" id="emailApiKeyInput" class="form-control" placeholder="re_123456789... or API key">
+                                    <small style="color: var(--neon-emerald); font-size: 0.78rem; display: block; margin-top: 0.25rem;">
+                                        * Secret API key obtained from email provider dashboard.
+                                    </small>
+                                </div>
+                            </div>
+
+                            <!-- Local SMTP Fields -->
+                            <div id="emailSmtpFieldsGroup" style="display: none;">
+                                <div class="form-group">
+                                    <label class="form-label"><i class="fa-solid fa-at"></i> Local Gmail Address (GMAIL_EMAIL)</label>
+                                    <input type="email" id="gmailEmailInput" class="form-control" placeholder="e.g. yourproject@gmail.com">
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label"><i class="fa-solid fa-key"></i> 16-Character Google App Password (GMAIL_APP_PASSWORD)</label>
+                                    <input type="password" id="gmailAppPasswordInput" class="form-control" placeholder="Enter 16-character App Password">
+                                </div>
                             </div>
 
                             <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
@@ -289,16 +322,16 @@
 
                         <!-- Right Box: Instructions -->
                         <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem;">
-                            <h4 style="margin-bottom: 0.75rem; color: var(--neon-cyan);"><i class="fa-solid fa-circle-info"></i> Gmail SMTP Integration Details</h4>
+                            <h4 style="margin-bottom: 0.75rem; color: var(--neon-cyan);"><i class="fa-solid fa-circle-info"></i> HTTPS Email API Integration Details</h4>
                             <p style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.6;">
-                                The attendance system automatically dispatches parent absence emails via <strong>Gmail SMTP (`smtp.gmail.com:587` TLS)</strong> when Admin finalizes attendance.
+                                The attendance system automatically dispatches parent absence emails via <strong>HTTPS REST API (Port 443)</strong> when Admin finalizes attendance.
                             </p>
                             <ul style="font-size: 0.85rem; color: var(--text-muted); margin-left: 1.25rem; line-height: 1.8;">
-                                <li><strong>100% Free</strong> — Zero SMS gateway fees or balance top-ups.</li>
+                                <li><strong>Render Free Compatible</strong> — Bypasses Render's outbound SMTP port blocking.</li>
+                                <li><strong>Free Tier Supported</strong> — Resend (3,000/mo free) or Brevo (300/day free).</li>
                                 <li><strong>Timing</strong> — Triggered ONLY after Admin clicks <em>FINALIZE ATTENDANCE</em>.</li>
                                 <li><strong>Duplicate Protection</strong> — Prevents sending multiple emails per session/student.</li>
-                                <li><strong>Masked Logs</strong> — Parent emails masked in logs (e.g. <code>p***@domain.com</code>).</li>
-                                <li><strong>App Password Required</strong> — Create at Google Account Security page.</li>
+                                <li><strong>Masked Logs & Keys</strong> — Parent emails and API keys masked securely in database logs and UI.</li>
                             </ul>
                         </div>
                     </div>

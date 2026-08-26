@@ -1189,6 +1189,23 @@ const admin = {
         if (modal) modal.classList.remove('active');
     },
 
+    toggleEmailModeFields() {
+        const mode = document.getElementById('emailModeSelect')?.value || 'API';
+        const apiGroup = document.getElementById('emailApiFieldsGroup');
+        const smtpGroup = document.getElementById('emailSmtpFieldsGroup');
+        const badge = document.getElementById('emailModeBadgeDisplay');
+
+        if (mode === 'API') {
+            if (apiGroup) apiGroup.style.display = 'block';
+            if (smtpGroup) smtpGroup.style.display = 'none';
+            if (badge) badge.textContent = 'HTTPS Email Provider API';
+        } else {
+            if (apiGroup) apiGroup.style.display = 'none';
+            if (smtpGroup) smtpGroup.style.display = 'block';
+            if (badge) badge.textContent = 'Gmail SMTP Server';
+        }
+    },
+
     async loadEmailSettings() {
         try {
             const res = await fetch(getApiUrl('/api/admin/settings/email'), {
@@ -1197,13 +1214,23 @@ const admin = {
             const data = await res.json();
             if (data.success && data.settings) {
                 const s = data.settings;
+                const modeSelect = document.getElementById('emailModeSelect');
+                const providerSelect = document.getElementById('emailProviderSelect');
+                const fromInput = document.getElementById('emailFromInput');
+                const apiKeyInput = document.getElementById('emailApiKeyInput');
                 const emailInput = document.getElementById('gmailEmailInput');
                 const passInput = document.getElementById('gmailAppPasswordInput');
                 const enableCheck = document.getElementById('enableEmailCheck');
 
+                if (modeSelect) modeSelect.value = s.email_mode || 'API';
+                if (providerSelect) providerSelect.value = s.email_provider || 'RESEND';
+                if (fromInput) fromInput.value = s.email_from || '';
+                if (apiKeyInput) apiKeyInput.value = s.email_api_key_masked || s.email_api_key || '';
                 if (emailInput) emailInput.value = s.gmail_email || '';
                 if (passInput) passInput.value = s.gmail_app_password_masked || s.gmail_app_password || '';
                 if (enableCheck) enableCheck.checked = s.enable_email_alerts !== false;
+
+                this.toggleEmailModeFields();
             }
         } catch (err) {
             console.error("Error loading Email settings:", err);
@@ -1212,9 +1239,13 @@ const admin = {
 
     async handleSaveEmailSettings(e) {
         if (e) e.preventDefault();
-        const gmail_email = document.getElementById('gmailEmailInput').value.trim();
-        const gmail_app_password = document.getElementById('gmailAppPasswordInput').value.trim();
-        const enable_email_alerts = document.getElementById('enableEmailCheck').checked;
+        const email_mode = document.getElementById('emailModeSelect')?.value || 'API';
+        const email_provider = document.getElementById('emailProviderSelect')?.value || 'RESEND';
+        const email_from = document.getElementById('emailFromInput')?.value.trim() || '';
+        const email_api_key = document.getElementById('emailApiKeyInput')?.value.trim() || '';
+        const gmail_email = document.getElementById('gmailEmailInput')?.value.trim() || '';
+        const gmail_app_password = document.getElementById('gmailAppPasswordInput')?.value.trim() || '';
+        const enable_email_alerts = document.getElementById('enableEmailCheck')?.checked;
 
         try {
             const res = await fetch(getApiUrl('/api/admin/settings/email'), {
@@ -1225,6 +1256,10 @@ const admin = {
                 },
                 body: JSON.stringify({
                     enable_email_alerts,
+                    email_mode,
+                    email_provider,
+                    email_from,
+                    email_api_key,
                     gmail_email,
                     gmail_app_password
                 })
