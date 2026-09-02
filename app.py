@@ -8,6 +8,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, send_from_directory, send_file, Response
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 import cv2
 import numpy as np
 
@@ -21,8 +22,35 @@ from exporter import export_attendance_to_excel, export_attendance_to_pdf
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config.from_object(Config)
 
+# Enable ProxyFix for Render HTTPS reverse proxy
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
 allowed_origins = os.environ.get('ALLOWED_ORIGINS', '*').split(',')
-CORS(app, origins=allowed_origins if allowed_origins != ['*'] else '*', supports_credentials=True)
+if allowed_origins == ['*']:
+    CORS(app, origins='*', supports_credentials=False)
+else:
+    CORS(app, origins=allowed_origins, supports_credentials=True)
+
+# -------------------------------------------------------------------
+# Custom JSON Error Handlers for Render API responses
+# -------------------------------------------------------------------
+@app.errorhandler(404)
+def handle_404(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': f'API endpoint not found: {request.path}'}), 404
+    return send_file('templates/index.html')
+
+@app.errorhandler(405)
+def handle_405(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': f'HTTP Method {request.method} not allowed for {request.path}'}), 405
+    return send_file('templates/index.html')
+
+@app.errorhandler(500)
+def handle_500(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': 'Internal Server Error. Please check server logs.'}), 500
+    return send_file('templates/index.html')
 
 db.init_app(app)
 
@@ -306,16 +334,20 @@ def add_student(current_user):
     if not validate_email_address(parent_email):
         return jsonify({'success': False, 'message': 'Please enter a valid Parent Email address (e.g. parent@example.com)'}), 400
 
+    existing_student = Student.query.filter_by(roll_no=roll_no, is_active=True).first()
+    if existing_student:
+        return jsonify({'success': False, 'message': f'Roll Number "{roll_no}" is already registered for active student {existing_student.name}.'}), 400
+
     norm_phone = ''
     if parent_phone:
         is_valid_phone, norm_phone = normalize_indian_mobile(parent_phone)
         if not is_valid_phone:
             norm_phone = parent_phone
 
-    if not face_images and not single_face_image:
-        return jsonify({'success': False, 'message': 'Face photo capture (5 images) is required to complete student registration'}), 400
+    if not face_images or not isinstance(face_images, list) or len(face_images) != 5:
+        return jsonify({'success': False, 'message': 'EXACTLY 5 face photo images are required to complete student registration.'}), 400
 
-    image_list = face_images if (isinstance(face_images, list) and len(face_images) > 0) else [single_face_image]
+    image_list = face_images
 
     # Clean roll number for folder naming
     clean_roll = "".join(c for c in roll_no if c.isalnum() or c in ('-', '_')).strip() or f"roll_{roll_no}"
@@ -328,7 +360,7 @@ def add_student(current_user):
 
     for idx, b64_img in enumerate(image_list):
         if not b64_img:
-            continue
+            return jsonify({'success': False, 'message': f'Photo #{idx + 1} is missing.'}), 400
         img_np = base64_to_cv2(b64_img)
         if img_np is None:
             return jsonify({'success': False, 'message': f'Invalid face photo format for image #{idx + 1}'}), 400
@@ -352,8 +384,8 @@ def add_student(current_user):
         rel_path = f"dataset/students/{clean_roll}/{filename}"
         saved_paths.append(rel_path)
 
-    if len(extracted_vectors) == 0:
-        return jsonify({'success': False, 'message': 'Failed to extract face encodings from images.'}), 400
+    if len(extracted_vectors) != 5:
+        return jsonify({'success': False, 'message': f'EXACTLY 5 valid face photo encodings are required. Only {len(extracted_vectors)} valid encodings were generated.'}), 400
 
     encoding_json = json.dumps({
         'version': face_engine.MODEL_VERSION,
@@ -361,7 +393,7 @@ def add_student(current_user):
         'vector': extracted_vectors[0]
     })
 
-    face_b64_storage = json.dumps(b64_list) if len(b64_list) > 1 else b64_list[0]
+    face_b64_storage = json.dumps(b64_list)
 
     if not student_code:
         student_code = f"STU-{roll_no}"
@@ -380,18 +412,22 @@ def add_student(current_user):
         name=name,
         roll_no=roll_no,
         class_name=class_name,
-        parent_email=parent_email or f"{roll_no.lower()}@student.local",
+        parent_email=parent_email,
         parent_phone=norm_phone,
         face_image_path=primary_rel_path,
         face_image_b64=face_b64_storage,
         encoding_json=encoding_json
     )
-    db.session.add(student)
-    db.session.commit()
+    try:
+        db.session.add(student)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Database error registering student: {str(e)}'}), 500
 
     return jsonify({
         'success': True,
-        'message': f'Student registered successfully with {len(extracted_vectors)} face photo encodings.',
+        'message': f'Student registered successfully with 5 face photo encodings.',
         'student': student.to_dict()
     })
 
@@ -713,6 +749,10 @@ def process_webcam_frame(current_user, session_id):
 
     db.session.commit()
 
+    import logging
+    logger = logging.getLogger("face_recognition")
+    logger.info(f"[LIVE FRAME] Session #{session_id} ({session.class_name}): active_students={len(class_students)}, recognized={len(recognized)}, undetected={len(undetected)}, threshold={face_engine.match_threshold}")
+
     return jsonify({
         'success': True,
         'processed_frame': f"data:image/jpeg;base64,{processed_b64}",
@@ -720,6 +760,58 @@ def process_webcam_frame(current_user, session_id):
         'recognized_count': len(recognized),
         'newly_marked_present': newly_marked_present,
         'undetected_count': len(undetected)
+    })
+
+@app.route('/api/sessions/<int:session_id>/diagnostics', methods=['GET'])
+@token_required
+def get_session_diagnostics(current_user, session_id):
+    """
+    Req 4: Development Diagnostic Endpoint
+    Reports active students, encoding status, vector counts, threshold, and SFace model configuration.
+    Secrets are strictly excluded.
+    """
+    session = AttendanceSession.query.get(session_id)
+    if not session:
+        return jsonify({'success': False, 'message': 'Session not found'}), 404
+
+    class_students = Student.query.filter_by(class_name=session.class_name, is_active=True).all()
+    students_info = []
+
+    for st in class_students:
+        s_vectors = face_engine._parse_vectors(st.encoding_json)
+        students_info.append({
+            'student_id': st.id,
+            'name': st.name,
+            'roll_no': st.roll_no,
+            'class_name': st.class_name,
+            'is_active': st.is_active,
+            'has_encoding': len(s_vectors) > 0,
+            'vectors_count': len(s_vectors),
+            'has_image_path': bool(st.face_image_path),
+            'has_image_b64': bool(st.face_image_b64)
+        })
+
+    records = AttendanceRecord.query.filter_by(session_id=session.id).all()
+    present_count = len([r for r in records if r.status == 'PRESENT'])
+    absent_count = len([r for r in records if r.status == 'ABSENT'])
+
+    return jsonify({
+        'success': True,
+        'diagnostics': {
+            'session_id': session.id,
+            'session_title': session.session_title,
+            'class_name': session.class_name,
+            'session_status': session.status,
+            'active_students_in_class': len(class_students),
+            'total_session_records': len(records),
+            'present_count': present_count,
+            'absent_count': absent_count,
+            'unknown_faces_count': len(session.undetected),
+            'match_threshold': face_engine.match_threshold,
+            'model_version': face_engine.MODEL_VERSION,
+            'embedding_dim': face_engine.active_vector_dim,
+            'students_info': students_info
+        }
     })
 
 @app.route('/api/sessions/<int:session_id>/submit_approval', methods=['POST'])
@@ -860,6 +952,7 @@ def finalize_session_by_admin(current_user, session_id):
 # Unknown Faces & Teacher Assignment / Admin Approval Routes
 # -------------------------------------------------------------------
 @app.route('/api/unknown_faces', methods=['GET'])
+@app.route('/api/admin/approvals', methods=['GET'])
 @app.route('/api/undetected/<int:session_id>', methods=['GET'])
 @token_required
 def get_unknown_faces(current_user, session_id=None):
@@ -929,6 +1022,7 @@ def teacher_assign_unknown_face(current_user):
 
 @app.route('/api/admin/unknown_faces/<int:undetected_id>/action', methods=['POST'])
 @app.route('/api/admin/undetected/<int:undetected_id>/action', methods=['POST'])
+@app.route('/api/admin/approvals/<int:undetected_id>/action', methods=['POST'])
 @token_required
 @admin_only
 def admin_unknown_face_action(current_user, undetected_id):

@@ -52,20 +52,14 @@ const admin = {
         if (!tbody) return;
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading unknown faces...</td></tr>';
 
-        try {
-            const res = await fetch(getApiUrl('/api/unknown_faces'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                this.unknownFacesData = data.unknown_faces || data.undetected_faces || [];
-                this.unknownFacesCurrentPage = 1;
-                this.renderUnknownFacesTable();
-            } else {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load unknown faces.</td></tr>';
-            }
-        } catch (err) {
-            console.error("Error loading unknown face approvals:", err);
+        const res = await safeApiFetch('/api/unknown_faces', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            this.unknownFacesData = res.data.unknown_faces || res.data.undetected_faces || [];
+            this.unknownFacesCurrentPage = 1;
+            this.renderUnknownFacesTable();
+        } else {
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: #ef4444; padding: 2rem;">Unable to load unknown faces.</td></tr>';
         }
     },
@@ -270,23 +264,18 @@ const admin = {
     },
 
     async handleUnknownFaceAction(id, action) {
-        try {
-            const res = await fetch(getApiUrl(`/api/admin/unknown_faces/${id}/action`), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ action })
-            });
+        const res = await safeApiFetch(`/api/admin/unknown_faces/${id}/action`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ action })
+        });
 
-            const data = await res.json();
-            alert(data.message);
-            this.loadUnknownFaceApprovals();
-            this.loadAdminReports();
-        } catch (err) {
-            alert("Error acting on unknown face assignment.");
-        }
+        alert(res.message || (res.ok ? 'Action executed' : 'Action failed'));
+        this.loadUnknownFaceApprovals();
+        this.loadAdminReports();
     },
 
     toggleSMSFields() {
@@ -478,17 +467,12 @@ const admin = {
     },
 
     async loadTeachers() {
-        try {
-            const res = await fetch(getApiUrl('/api/teachers'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('adminCountTeachers').innerText = data.teachers.length;
-                this.renderTeachersTable(data.teachers);
-            }
-        } catch (err) {
-            console.error("Error loading teachers:", err);
+        const res = await safeApiFetch('/api/teachers', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            document.getElementById('adminCountTeachers').innerText = res.data.teachers.length;
+            this.renderTeachersTable(res.data.teachers);
         }
     },
 
@@ -552,26 +536,21 @@ const admin = {
         const email = document.getElementById('editTEmail').value.trim();
         const password = document.getElementById('editTPassword').value.trim();
 
-        try {
-            const res = await fetch(getApiUrl(`/api/teachers/${id}`), {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ full_name, username, email, password })
-            });
+        const res = await safeApiFetch(`/api/teachers/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ full_name, username, email, password })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                this.closeEditTeacherModal();
-                this.loadTeachers();
-            } else {
-                alert(data.message || 'Failed to update professor');
-            }
-        } catch (err) {
-            alert('Error connecting to server.');
+        if (res.ok && res.data && res.data.success) {
+            alert(res.message);
+            this.closeEditTeacherModal();
+            this.loadTeachers();
+        } else {
+            alert(res.message || 'Failed to update professor');
         }
     },
 
@@ -582,60 +561,45 @@ const admin = {
         const email = document.getElementById('tEmail').value;
         const password = document.getElementById('tPassword').value;
 
-        try {
-            const res = await fetch(getApiUrl('/api/teachers'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ full_name, username, email, password })
-            });
+        const res = await safeApiFetch('/api/teachers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ full_name, username, email, password })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                this.closeAddTeacherModal();
-                this.loadTeachers();
-            } else {
-                alert(data.message || 'Failed to add professor');
-            }
-        } catch (err) {
-            alert('Error connecting to server.');
+        if (res.ok && res.data && res.data.success) {
+            alert(res.message);
+            this.closeAddTeacherModal();
+            this.loadTeachers();
+        } else {
+            alert(res.message || 'Failed to add professor');
         }
     },
 
     async deleteTeacher(id) {
         if (!confirm("Are you sure you want to delete this professor account?")) return;
-        try {
-            const res = await fetch(getApiUrl(`/api/teachers/${id}`), {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                this.loadTeachers();
-            } else {
-                alert(data.message);
-            }
-        } catch (err) {
-            alert("Server error deleting professor.");
+        const res = await safeApiFetch(`/api/teachers/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            alert(res.message);
+            this.loadTeachers();
+        } else {
+            alert(res.message || 'Error deleting professor.');
         }
     },
 
     async loadStudents() {
-        try {
-            const res = await fetch(getApiUrl('/api/students'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('adminCountStudents').innerText = data.students.length;
-                this.renderStudentsTable(data.students);
-            }
-        } catch (err) {
-            console.error("Error loading students:", err);
+        const res = await safeApiFetch('/api/students', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            document.getElementById('adminCountStudents').innerText = res.data.students.length;
+            this.renderStudentsTable(res.data.students);
         }
     },
 
@@ -723,42 +687,32 @@ const admin = {
 
     async deleteStudent(id) {
         if (!confirm("Are you sure you want to delete this student record?")) return;
-        try {
-            const res = await fetch(getApiUrl(`/api/students/${id}`), {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                this.loadStudents();
-            } else {
-                alert(data.message);
-            }
-        } catch (err) {
-            alert("Server error deleting student.");
+        const res = await safeApiFetch(`/api/students/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            alert(res.message);
+            this.loadStudents();
+        } else {
+            alert(res.message || 'Failed to delete student');
         }
     },
 
     async loadPendingAttendance() {
-        try {
-            const res = await fetch(getApiUrl('/api/sessions'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                const pendingSessions = (data.sessions || []).filter(s => s.status !== 'COMPLETED' || s.pending_approval_count > 0);
-                const count = pendingSessions.length;
-                
-                const cardEl = document.getElementById('adminCountPendingAttendance');
-                if (cardEl) cardEl.innerText = count;
-                const badgeEl = document.getElementById('pendingAttendanceBadge');
-                if (badgeEl) badgeEl.innerText = count;
+        const res = await safeApiFetch('/api/sessions', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            const pendingSessions = (res.data.sessions || []).filter(s => s.status !== 'COMPLETED' || s.pending_approval_count > 0);
+            const count = pendingSessions.length;
+            
+            const cardEl = document.getElementById('adminCountPendingAttendance');
+            if (cardEl) cardEl.innerText = count;
+            const badgeEl = document.getElementById('pendingAttendanceBadge');
+            if (badgeEl) badgeEl.innerText = count;
 
-                this.renderPendingAttendanceTable(pendingSessions);
-            }
-        } catch (err) {
-            console.error("Error loading pending attendance:", err);
+            this.renderPendingAttendanceTable(pendingSessions);
         }
     },
 
@@ -805,52 +759,47 @@ const admin = {
         const gallery = document.getElementById('adminClaimsGallery');
         if (gallery) gallery.innerHTML = '<div style="color:var(--text-muted);">Loading teacher face claims...</div>';
 
-        try {
-            const res = await fetch(getApiUrl(`/api/undetected/${sessionId}`), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                gallery.innerHTML = '';
-                const claimed = (data.undetected_faces || []).filter(f => f.claimed_student_name || f.status !== 'UNCLAIMED');
-                if (claimed.length === 0) {
-                    gallery.innerHTML = '<div style="color:var(--text-muted); grid-column: 1/-1; text-align:center; padding:1.5rem;">No manual face claims recorded for this session.</div>';
-                    return;
+        const res = await safeApiFetch(`/api/undetected/${sessionId}`, {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            gallery.innerHTML = '';
+            const claimed = (res.data.undetected_faces || []).filter(f => f.claimed_student_name || f.status !== 'UNCLAIMED');
+            if (claimed.length === 0) {
+                gallery.innerHTML = '<div style="color:var(--text-muted); grid-column: 1/-1; text-align:center; padding:1.5rem;">No manual face claims recorded for this session.</div>';
+                return;
+            }
+
+            claimed.forEach(uf => {
+                const card = document.createElement('div');
+                card.className = 'face-card';
+
+                let statusBadge = '';
+                if (uf.status === 'APPROVED') {
+                    statusBadge = `<div style="margin-top:0.5rem; text-align:center;"><span class="badge-status badge-present">✓ Approved (PRESENT)</span></div>`;
+                } else if (uf.status === 'REJECTED') {
+                    statusBadge = `<div style="margin-top:0.5rem; text-align:center;"><span class="badge-status badge-pending" style="background:rgba(239,68,68,0.2); color:#ef4444; border-color:rgba(239,68,68,0.4);">✗ Rejected (ABSENT)</span></div>`;
+                } else {
+                    statusBadge = `
+                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                            <button onclick="admin.handleUndetectedClaimAction(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-sm" style="flex:1;">
+                                <i class="fa-solid fa-check"></i> OK (Approve)
+                            </button>
+                            <button onclick="admin.handleUndetectedClaimAction(${uf.id}, 'REJECT')" class="btn btn-danger btn-sm" style="flex:1;">
+                                <i class="fa-solid fa-xmark"></i> Reject
+                            </button>
+                        </div>
+                    `;
                 }
 
-                claimed.forEach(uf => {
-                    const card = document.createElement('div');
-                    card.className = 'face-card';
-
-                    let statusBadge = '';
-                    if (uf.status === 'APPROVED') {
-                        statusBadge = `<div style="margin-top:0.5rem; text-align:center;"><span class="badge-status badge-present">✓ Approved (PRESENT)</span></div>`;
-                    } else if (uf.status === 'REJECTED') {
-                        statusBadge = `<div style="margin-top:0.5rem; text-align:center;"><span class="badge-status badge-pending" style="background:rgba(239,68,68,0.2); color:#ef4444; border-color:rgba(239,68,68,0.4);">✗ Rejected (ABSENT)</span></div>`;
-                    } else {
-                        statusBadge = `
-                            <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
-                                <button onclick="admin.handleUndetectedClaimAction(${uf.id}, 'APPROVE')" class="btn btn-emerald btn-sm" style="flex:1;">
-                                    <i class="fa-solid fa-check"></i> OK (Approve)
-                                </button>
-                                <button onclick="admin.handleUndetectedClaimAction(${uf.id}, 'REJECT')" class="btn btn-danger btn-sm" style="flex:1;">
-                                    <i class="fa-solid fa-xmark"></i> Reject
-                                </button>
-                            </div>
-                        `;
-                    }
-
-                    card.innerHTML = `
-                        <img src="${getApiUrl(uf.image_path)}" class="face-thumb" />
-                        <div style="font-size: 0.8rem; font-weight: bold; margin-top: 0.3rem;">Mapped: ${uf.claimed_student_name || 'Student'}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem;">Submitted by: ${uf.claimed_by_teacher_name || 'Professor'}</div>
-                        ${statusBadge}
-                    `;
-                    gallery.appendChild(card);
-                });
-            }
-        } catch (err) {
-            console.error("Error loading session face claims:", err);
+                card.innerHTML = `
+                    <img src="${getApiUrl(uf.image_path)}" class="face-thumb" />
+                    <div style="font-size: 0.8rem; font-weight: bold; margin-top: 0.3rem;">Mapped: ${uf.claimed_student_name || 'Student'}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem;">Submitted by: ${uf.claimed_by_teacher_name || 'Professor'}</div>
+                    ${statusBadge}
+                `;
+                gallery.appendChild(card);
+            });
         }
     },
 
@@ -860,30 +809,24 @@ const admin = {
     },
 
     async handleUndetectedClaimAction(undetectedId, action) {
-        try {
-            const res = await fetch(getApiUrl(`/api/admin/undetected/${undetectedId}/action`), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ action })
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-            } else {
-                alert(data.message || "Error processing claim action.");
-            }
-            if (this.activeClaimsSessionId) {
-                this.viewSessionClaims(this.activeClaimsSessionId);
-            }
-            this.loadPendingAttendance();
-            this.loadAdminReports();
-        } catch (err) {
-            console.error("Error acting on claim:", err);
-            alert("Error acting on claim.");
+        const res = await safeApiFetch(`/api/admin/undetected/${undetectedId}/action`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ action })
+        });
+        if (res.ok && res.data && res.data.success) {
+            alert(res.data.message || 'Claim updated.');
+        } else {
+            alert(res.message || "Error processing claim action.");
         }
+        if (this.activeClaimsSessionId) {
+            this.viewSessionClaims(this.activeClaimsSessionId);
+        }
+        this.loadPendingAttendance();
+        this.loadAdminReports();
     },
 
     async finalizeSessionFromClaimsModal() {
@@ -895,94 +838,73 @@ const admin = {
     },
 
     async handleApprovalAction(recordId, action) {
-        try {
-            const res = await fetch(getApiUrl(`/api/admin/approvals/${recordId}/action`), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ action })
-            });
+        const res = await safeApiFetch(`/api/admin/approvals/${recordId}/action`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ action })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                this.loadPendingAttendance();
-                this.loadAdminReports();
-            } else {
-                alert(data.message);
-            }
-        } catch (err) {
-            alert("Error processing approval action.");
-        }
+        alert(res.message || (res.ok ? 'Approval updated' : 'Error updating approval'));
+        this.loadPendingAttendance();
+        this.loadAdminReports();
     },
 
     async approveAllAndFinalize() {
         if (!confirm("Are you sure you want to approve all pending face claims and finalize attendance?")) return;
 
-        try {
-            const res = await fetch(getApiUrl('/api/admin/approvals'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            
-            if (data.success && data.pending_approvals) {
-                for (const app of data.pending_approvals) {
-                    await fetch(getApiUrl(`/api/admin/approvals/${app.id}/action`), {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${auth.token}`
-                        },
-                        body: JSON.stringify({ action: 'APPROVE' })
-                    });
-                }
+        const res = await safeApiFetch('/api/admin/approvals', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        
+        if (res.ok && res.data && res.data.pending_approvals) {
+            for (const app of res.data.pending_approvals) {
+                await safeApiFetch(`/api/admin/approvals/${app.id}/action`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`
+                    },
+                    body: JSON.stringify({ action: 'APPROVE' })
+                });
             }
-
-            // Also check for active sessions to finalize
-            const sRes = await fetch(getApiUrl('/api/sessions'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const sData = await sRes.json();
-            if (sData.success && sData.sessions) {
-                const activeSessions = sData.sessions.filter(s => s.status === 'ACTIVE');
-                for (const sess of activeSessions) {
-                    await fetch(getApiUrl(`/api/sessions/${sess.id}/complete`), {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${auth.token}` }
-                    });
-                }
-            }
-
-            alert("All pending attendance requests approved & session(s) finalized successfully!");
-            this.loadPendingAttendance();
-            this.loadAdminReports();
-        } catch (err) {
-            alert("Error approving and finalizing attendance.");
         }
+
+        // Also check for active sessions to finalize
+        const sRes = await safeApiFetch('/api/sessions', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (sRes.ok && sRes.data && sRes.data.sessions) {
+            const activeSessions = sRes.data.sessions.filter(s => s.status === 'ACTIVE');
+            for (const sess of activeSessions) {
+                await safeApiFetch(`/api/sessions/${sess.id}/complete`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${auth.token}` }
+                });
+            }
+        }
+
+        alert("All pending attendance requests approved & session(s) finalized successfully!");
+        this.loadPendingAttendance();
+        this.loadAdminReports();
     },
 
     async finalizeSessionByAdmin(sessionId) {
         if (!confirm("Are you sure you want to finalize this attendance session?\n\nThis will calculate final Present and Absent students, set session status to FINALIZED, and automatically send Gmail parent absence emails.")) return;
 
-        try {
-            const res = await fetch(getApiUrl(`/api/sessions/${sessionId}/finalize`), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                }
-            });
+        const res = await safeApiFetch(`/api/sessions/${sessionId}/finalize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            }
+        });
 
-            const data = await res.json();
-            alert(data.message);
-            this.loadPendingAttendance();
-            this.loadAdminReports();
-        } catch (err) {
-            console.error("Error finalizing session:", err);
-            alert("Error finalizing session.");
-        }
+        alert(res.message || (res.ok ? 'Session finalized' : 'Error finalizing session'));
+        this.loadPendingAttendance();
+        this.loadAdminReports();
     },
 
     async loadAdminReports() {
@@ -991,13 +913,15 @@ const admin = {
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading attendance sessions...</td></tr>';
         }
-        try {
-            const res = await fetch(getApiUrl('/api/sessions'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            console.log("[ADMIN REPORTS] API status:", res.status);
-            const data = await res.json();
-            console.log("[ADMIN REPORTS] Response:", data);
+        const res = await safeApiFetch('/api/sessions', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            this.renderAdminReportsTable(res.data.sessions);
+        } else if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#ef4444; padding:2rem;">Failed to load attendance sessions.</td></tr>';
+        }
+    },
 
             const sessionsList = data ? (data.sessions || data.data || (Array.isArray(data) ? data : [])) : [];
             console.log("[ADMIN REPORTS] Session count:", sessionsList.length);
@@ -1209,33 +1133,28 @@ const admin = {
     },
 
     async loadEmailSettings() {
-        try {
-            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success && data.settings) {
-                const s = data.settings;
-                const modeSelect = document.getElementById('emailModeSelect');
-                const providerSelect = document.getElementById('emailProviderSelect');
-                const fromInput = document.getElementById('emailFromInput');
-                const apiKeyInput = document.getElementById('emailApiKeyInput');
-                const emailInput = document.getElementById('gmailEmailInput');
-                const passInput = document.getElementById('gmailAppPasswordInput');
-                const enableCheck = document.getElementById('enableEmailCheck');
+        const res = await safeApiFetch('/api/admin/settings/email', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success && res.data.settings) {
+            const s = res.data.settings;
+            const modeSelect = document.getElementById('emailModeSelect');
+            const providerSelect = document.getElementById('emailProviderSelect');
+            const fromInput = document.getElementById('emailFromInput');
+            const apiKeyInput = document.getElementById('emailApiKeyInput');
+            const emailInput = document.getElementById('gmailEmailInput');
+            const passInput = document.getElementById('gmailAppPasswordInput');
+            const enableCheck = document.getElementById('enableEmailCheck');
 
-                if (modeSelect) modeSelect.value = s.email_mode || 'API';
-                if (providerSelect) providerSelect.value = s.email_provider || 'RESEND';
-                if (fromInput) fromInput.value = s.email_from || '';
-                if (apiKeyInput) apiKeyInput.value = s.email_api_key_masked || s.email_api_key || '';
-                if (emailInput) emailInput.value = s.gmail_email || '';
-                if (passInput) passInput.value = s.gmail_app_password_masked || s.gmail_app_password || '';
-                if (enableCheck) enableCheck.checked = s.enable_email_alerts !== false;
+            if (modeSelect) modeSelect.value = s.email_mode || 'API';
+            if (providerSelect) providerSelect.value = s.email_provider || 'RESEND';
+            if (fromInput) fromInput.value = s.email_from || '';
+            if (apiKeyInput) apiKeyInput.value = s.email_api_key_masked || s.email_api_key || '';
+            if (emailInput) emailInput.value = s.gmail_email || '';
+            if (passInput) passInput.value = s.gmail_app_password_masked || s.gmail_app_password || '';
+            if (enableCheck) enableCheck.checked = s.enable_email_alerts !== false;
 
-                this.toggleEmailModeFields();
-            }
-        } catch (err) {
-            console.error("Error loading Email settings:", err);
+            this.toggleEmailModeFields();
         }
     },
 
@@ -1249,31 +1168,26 @@ const admin = {
         const gmail_app_password = document.getElementById('gmailAppPasswordInput')?.value.trim() || '';
         const enable_email_alerts = document.getElementById('enableEmailCheck')?.checked;
 
-        try {
-            const res = await fetch(getApiUrl('/api/admin/settings/email'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({
-                    enable_email_alerts,
-                    email_mode,
-                    email_provider,
-                    email_from,
-                    email_api_key,
-                    gmail_email,
-                    gmail_app_password
-                })
-            });
+        const res = await safeApiFetch('/api/admin/settings/email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+                enable_email_alerts,
+                email_mode,
+                email_provider,
+                email_from,
+                email_api_key,
+                gmail_email,
+                gmail_app_password
+            })
+        });
 
-            const data = await res.json();
-            alert(data.message);
-            if (data.success) {
-                this.loadEmailSettings();
-            }
-        } catch (err) {
-            alert("Failed to save Email settings.");
+        alert(res.message || (res.ok ? 'Email settings saved' : 'Failed to save Email settings.'));
+        if (res.ok && res.data && res.data.success) {
+            this.loadEmailSettings();
         }
     },
 
@@ -1281,37 +1195,32 @@ const admin = {
         const tbody = document.getElementById('adminEmailLogsTableBody');
         if (!tbody) return;
 
-        try {
-            const res = await fetch(getApiUrl('/api/admin/email_logs'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                tbody.innerHTML = '';
-                const logs = data.logs || [];
-                if (logs.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No parent email notification records found.</td></tr>';
-                    return;
-                }
-
-                logs.forEach(l => {
-                    const tr = document.createElement('tr');
-                    const isSuccess = l.status === 'SENT' || l.status === 'SIMULATED';
-                    const badgeClass = isSuccess ? 'badge-present' : 'badge-absent';
-
-                    tr.innerHTML = `
-                        <td><strong>${l.student_name}</strong></td>
-                        <td>${l.roll_no}</td>
-                        <td><code>${l.parent_email_masked || l.parent_email}</code></td>
-                        <td><span style="color: var(--neon-cyan);">${l.session_title}</span> — ${l.subject}</td>
-                        <td><span class="badge-status ${badgeClass}">${l.status}</span></td>
-                        <td style="font-size: 0.82rem; color: var(--text-muted);">${l.timestamp}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+        const res = await safeApiFetch('/api/admin/email_logs', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            tbody.innerHTML = '';
+            const logs = res.data.logs || [];
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No parent email notification records found.</td></tr>';
+                return;
             }
-        } catch (err) {
-            console.error("Error loading email logs:", err);
+
+            logs.forEach(l => {
+                const tr = document.createElement('tr');
+                const isSuccess = l.status === 'SENT' || l.status === 'SIMULATED';
+                const badgeClass = isSuccess ? 'badge-present' : 'badge-absent';
+
+                tr.innerHTML = `
+                    <td><strong>${l.student_name}</strong></td>
+                    <td>${l.roll_no}</td>
+                    <td><code>${l.parent_email_masked || l.parent_email}</code></td>
+                    <td><span style="color: var(--neon-cyan);">${l.session_title}</span> — ${l.subject}</td>
+                    <td><span class="badge-status ${badgeClass}">${l.status}</span></td>
+                    <td style="font-size: 0.82rem; color: var(--text-muted);">${l.timestamp}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
     },
 
@@ -1348,7 +1257,7 @@ const admin = {
         }
 
         try {
-            const res = await fetch(getApiUrl('/api/admin/settings/test_email'), {
+            const res = await safeApiFetch('/api/admin/settings/test_email', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1357,9 +1266,9 @@ const admin = {
                 body: JSON.stringify({ email: targetEmail })
             });
 
-            const data = await res.json();
+            const data = res.data || {};
             const d = data.details || {};
-            const isSuccess = data.success;
+            const isSuccess = res.ok && data.success;
 
             if (box) {
                 box.style.display = 'block';
@@ -1382,7 +1291,7 @@ const admin = {
                         ${statusBadge}
                     </div>
                     <div style="font-size: 0.85rem; line-height: 1.5; color: var(--text-main);">
-                        ${isSuccess ? '✓ ' + data.message : '❌ ' + (d.error_message || data.message)}
+                        ${isSuccess ? '✓ ' + (data.message || 'Email sent') : '❌ ' + (d.error_message || data.message || res.message)}
                     </div>
                     <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; border-top: 1px solid var(--border-glass); padding-top: 0.4rem;">
                         DB Log Entry: ${d.log_entry ? 'Saved Log #' + d.log_entry.id + ' (' + d.log_entry.status + ')' : 'Persisted'}
@@ -1410,14 +1319,12 @@ const admin = {
     analyticsClassChartInstance: null,
 
     async loadAnalytics() {
-        try {
-            const res = await fetch(getApiUrl('/api/analytics'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (!data.success || !data.analytics) return;
+        const res = await safeApiFetch('/api/analytics', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (!res.ok || !res.data || !res.data.success || !res.data.analytics) return;
 
-            const a = data.analytics;
+        const a = res.data.analytics;
             
             const avgEl = document.getElementById('analyticsAvgRate');
             const lowEl = document.getElementById('analyticsLowRiskCount');

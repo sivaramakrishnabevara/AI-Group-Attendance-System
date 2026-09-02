@@ -151,6 +151,7 @@ def init_db(app):
                             if enc_vec:
                                 st.encoding_json = json.dumps({
                                     'version': MODEL_VERSION,
+                                    'vectors': [enc_vec],
                                     'vector': enc_vec
                                 })
                                 migrated_count += 1

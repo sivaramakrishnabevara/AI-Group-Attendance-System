@@ -18,20 +18,24 @@ const webcam = {
         // Reset form inputs
         const nameInput = document.getElementById('wizStName');
         const rollInput = document.getElementById('wizStRollNo');
+        const classInput = document.getElementById('wizStClassName');
         const emailInput = document.getElementById('wizStParentEmail');
-        const phoneInput = document.getElementById('wizStParentPhone');
 
         if (nameInput) nameInput.value = '';
         if (rollInput) rollInput.value = '';
         if (classInput) classInput.value = 'Computer Science - Year 4';
         if (emailInput) emailInput.value = '';
-        if (phoneInput) phoneInput.value = '';
 
         // Reset views
-        document.getElementById('regStepDetails').style.display = 'block';
-        document.getElementById('regStepCamera').style.display = 'none';
-        document.getElementById('regStepPreview').style.display = 'none';
-        document.getElementById('regStepComplete').style.display = 'none';
+        const stepDetails = document.getElementById('regStepDetails');
+        const stepCamera = document.getElementById('regStepCamera');
+        const stepPreview = document.getElementById('regStepPreview');
+        const stepComplete = document.getElementById('regStepComplete');
+
+        if (stepDetails) stepDetails.style.display = 'block';
+        if (stepCamera) stepCamera.style.display = 'none';
+        if (stepPreview) stepPreview.style.display = 'none';
+        if (stepComplete) stepComplete.style.display = 'none';
 
         this.updateStepIndicators(1);
         this.updateCaptureProgressUI();
@@ -90,12 +94,20 @@ const webcam = {
     },
 
     async proceedToCameraStep() {
-        const name = document.getElementById('wizStName').value.trim();
-        const roll_no = document.getElementById('wizStRollNo').value.trim();
-        const class_name = document.getElementById('wizStClassName').value.trim();
-        const parent_email = document.getElementById('wizStParentEmail').value.trim();
-        const phoneEl = document.getElementById('wizStParentPhone');
-        const parent_phone = phoneEl ? phoneEl.value.trim() : '';
+        const nameEl = document.getElementById('wizStName');
+        const rollEl = document.getElementById('wizStRollNo');
+        const classEl = document.getElementById('wizStClassName');
+        const emailEl = document.getElementById('wizStParentEmail');
+
+        if (!nameEl || !rollEl || !classEl || !emailEl) {
+            alert('Registration modal form elements missing.');
+            return;
+        }
+
+        const name = nameEl.value.trim();
+        const roll_no = rollEl.value.trim();
+        const class_name = classEl.value.trim();
+        const parent_email = emailEl.value.trim();
 
         if (!name || !roll_no || !class_name || !parent_email) {
             alert('Please fill in all required fields (Name, Roll No, Class Name, and Parent Email Address).');
@@ -108,10 +120,12 @@ const webcam = {
             return;
         }
 
-        this.studentData = { name, roll_no, class_name, parent_email, parent_phone };
+        this.studentData = { name, roll_no, class_name, parent_email };
 
-        document.getElementById('regStepDetails').style.display = 'none';
-        document.getElementById('regStepCamera').style.display = 'block';
+        const stepDetails = document.getElementById('regStepDetails');
+        const stepCamera = document.getElementById('regStepCamera');
+        if (stepDetails) stepDetails.style.display = 'none';
+        if (stepCamera) stepCamera.style.display = 'block';
         this.updateStepIndicators(3);
 
         await this.startWizardCamera();
@@ -121,19 +135,28 @@ const webcam = {
         const statusEl = document.getElementById('wizCameraStatus');
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                if (statusEl) statusEl.innerText = '⚠️ Camera blocked by browser security settings.';
+                if (statusEl) statusEl.innerText = '⚠️ Camera blocked by browser security settings or non-HTTPS connection.';
+                alert('Webcam access requires HTTPS or localhost connection.');
                 return;
             }
 
             const video = document.getElementById('wizCameraVideo');
+            if (!video) return;
+
             this.stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: 640, height: 480, facingMode: 'user' }
             });
             video.srcObject = this.stream;
+            try {
+                await video.play();
+            } catch (e) {
+                console.warn("Camera video play exception:", e);
+            }
             this.updateCaptureProgressUI();
         } catch (err) {
             console.error("Wizard camera error:", err);
             if (statusEl) statusEl.innerText = '⚠️ Camera Access Denied. Please enable webcam permissions.';
+            alert('Camera Access Denied or Unavailable. Please enable camera permissions in your browser.');
         }
     },
 
@@ -172,7 +195,7 @@ const webcam = {
 
         try {
             // Validate face count (must be exactly 1)
-            const res = await fetch(getApiUrl('/api/detect_face_check'), {
+            const res = await safeApiFetch('/api/detect_face_check', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -181,22 +204,21 @@ const webcam = {
                 body: JSON.stringify({ image: frameB64 })
             });
 
-            const data = await res.json();
-            if (data.success && data.count === 1) {
+            if (res.ok && res.data && res.data.success && res.data.count === 1) {
                 this.capturedImages.push(frameB64);
                 this.updateCaptureProgressUI();
 
                 if (this.capturedImages.length >= 5) {
                     setTimeout(() => this.showPreviewStep(), 500);
                 }
-            } else if (data.count === 0) {
+            } else if (res.data && res.data.count === 0) {
                 alert('Face not detected. Please try again.');
                 if (statusEl) statusEl.innerText = '❌ Face not detected. Please try again.';
-            } else if (data.count > 1) {
+            } else if (res.data && res.data.count > 1) {
                 alert('Multiple faces detected. Only one student should be in the camera.');
                 if (statusEl) statusEl.innerText = '❌ Multiple faces detected. Only one student should be in frame.';
             } else {
-                alert(data.message || 'Face detection check failed.');
+                alert(res.message || 'Face detection check failed.');
             }
         } catch (err) {
             console.error("Face capture validation error:", err);
@@ -252,40 +274,36 @@ const webcam = {
 
         this.updateStepIndicators(6);
 
-        try {
-            const res = await fetch(getApiUrl('/api/students'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({
-                    name: this.studentData.name,
-                    roll_no: this.studentData.roll_no,
-                    class_name: this.studentData.class_name,
-                    parent_mobile_number: this.studentData.parent_phone,
-                    parent_email: this.studentData.parent_email,
-                    face_images: this.capturedImages
-                })
-            });
+        const res = await safeApiFetch('/api/students', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+                name: this.studentData.name,
+                roll_no: this.studentData.roll_no,
+                class_name: this.studentData.class_name,
+                parent_email: this.studentData.parent_email,
+                face_images: this.capturedImages
+            })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('regStepPreview').style.display = 'none';
-                document.getElementById('regStepComplete').style.display = 'block';
-                this.updateStepIndicators(7);
+        if (res.ok && res.data && res.data.success) {
+            const stepPreview = document.getElementById('regStepPreview');
+            const stepComplete = document.getElementById('regStepComplete');
+            if (stepPreview) stepPreview.style.display = 'none';
+            if (stepComplete) stepComplete.style.display = 'block';
+            this.updateStepIndicators(7);
 
-                if (window.auth && auth.user && auth.user.role === 'ADMIN') {
-                    admin.loadStudents();
-                } else if (window.teacher) {
-                    teacher.loadStudentsDirectory();
-                }
-            } else {
-                alert(data.message || 'Failed to register student.');
+            if (window.admin && typeof admin.loadStudents === 'function') {
+                admin.loadStudents();
             }
-        } catch (err) {
-            console.error("Student registration error:", err);
-            alert('Server error registering student.');
+            if (window.teacher && typeof teacher.loadStudentsDirectory === 'function') {
+                teacher.loadStudentsDirectory();
+            }
+        } else {
+            alert(res.message || 'Failed to register student.');
         }
     }
 };

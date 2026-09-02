@@ -38,57 +38,47 @@ const teacher = {
     },
 
     async loadStudentsDirectory() {
-        try {
-            const res = await fetch(getApiUrl('/api/students'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                const tbody = document.getElementById('teacherStudentsTableBody');
-                if (!tbody) return;
-                tbody.innerHTML = '';
-                if (!data.students || data.students.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No students registered yet. Click "Register Student with Face" to add.</td></tr>';
-                    return;
-                }
-                data.students.forEach(st => {
-                    const tr = document.createElement('tr');
-                    const parentEmail = st.parent_email || (st.roll_no ? st.roll_no.toLowerCase() + '@student.local' : 'N/A');
-                    tr.innerHTML = `
-                        <td><strong>${st.roll_no}</strong></td>
-                        <td>${st.name}</td>
-                        <td>${st.class_name}</td>
-                        <td><code>${parentEmail}</code></td>
-                        <td>
-                            ${st.has_face 
-                                ? '<span class="badge-status badge-present">✓ Encoded</span>' 
-                                : '<span class="badge-status badge-absent">Missing Face</span>'}
-                        </td>
-                        <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <button onclick="webcam.openAddStudentWizard()" class="btn btn-primary btn-sm">
-                                <i class="fa-solid fa-user-pen"></i> Register / Edit
-                            </button>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+        const res = await safeApiFetch('/api/students', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            const tbody = document.getElementById('teacherStudentsTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            if (!res.data.students || res.data.students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No students registered yet. Click "Register Student with Face" to add.</td></tr>';
+                return;
             }
-        } catch (err) {
-            console.error("Error loading students:", err);
+            res.data.students.forEach(st => {
+                const tr = document.createElement('tr');
+                const parentEmail = st.parent_email || (st.roll_no ? st.roll_no.toLowerCase() + '@student.local' : 'N/A');
+                tr.innerHTML = `
+                    <td><strong>${st.roll_no}</strong></td>
+                    <td>${st.name}</td>
+                    <td>${st.class_name}</td>
+                    <td><code>${parentEmail}</code></td>
+                    <td>
+                        ${st.has_face 
+                            ? '<span class="badge-status badge-present">✓ Encoded</span>' 
+                            : '<span class="badge-status badge-absent">Missing Face</span>'}
+                    </td>
+                    <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button onclick="webcam.openAddStudentWizard()" class="btn btn-primary btn-sm">
+                            <i class="fa-solid fa-user-pen"></i> Register / Edit
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
     },
 
     async loadTeacherSessions() {
-        try {
-            const res = await fetch(getApiUrl('/api/sessions'), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                this.renderSessionsTable(data.sessions);
-            }
-        } catch (err) {
-            console.error("Failed to load sessions:", err);
+        const res = await safeApiFetch('/api/sessions', {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success) {
+            this.renderSessionsTable(res.data.sessions);
         }
     },
 
@@ -147,37 +137,57 @@ const teacher = {
         }
     },
 
+    showStatusBanner(message, type = 'info') {
+        const banner = document.getElementById('liveStatusBanner');
+        if (!banner) return;
+        banner.style.display = 'block';
+        banner.innerText = message;
+        if (type === 'success') {
+            banner.style.background = 'rgba(0, 230, 118, 0.2)';
+            banner.style.border = '1px solid var(--neon-emerald)';
+            banner.style.color = 'var(--neon-emerald)';
+        } else if (type === 'warning') {
+            banner.style.background = 'rgba(255, 171, 0, 0.2)';
+            banner.style.border = '1px solid #ffbe0b';
+            banner.style.color = '#ffbe0b';
+        } else if (type === 'error') {
+            banner.style.background = 'rgba(239, 68, 68, 0.2)';
+            banner.style.border = '1px solid #ef4444';
+            banner.style.color = '#ef4444';
+        } else {
+            banner.style.background = 'rgba(0, 242, 254, 0.15)';
+            banner.style.border = '1px solid var(--neon-cyan)';
+            banner.style.color = 'var(--neon-cyan)';
+        }
+    },
+
     async startLiveSession() {
         const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         const sessionTitle = `Lecture Attendance - ${timeStr}`;
 
-        try {
-            const res = await fetch(getApiUrl('/api/sessions/start'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({
-                    session_title: sessionTitle,
-                    class_name: 'Computer Science - Year 4'
-                })
-            });
+        const res = await safeApiFetch('/api/sessions/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+                session_title: sessionTitle,
+                class_name: 'Computer Science - Year 4'
+            })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                this.activeSessionId = data.session.id;
-                document.getElementById('activeSessionTitle').innerText = data.session.session_title;
-                const panel = document.getElementById('liveAttendancePanel');
-                panel.style.display = 'block';
-                panel.scrollIntoView({ behavior: 'smooth' });
-                await this.startWebcamFeed();
-                this.updateLiveRecordsUI();
-            } else {
-                alert(data.message || 'Failed to start session');
-            }
-        } catch (err) {
-            alert('Server error starting session.');
+        if (res.ok && res.data && res.data.success) {
+            this.activeSessionId = res.data.session.id;
+            document.getElementById('activeSessionTitle').innerText = res.data.session.session_title;
+            const panel = document.getElementById('liveAttendancePanel');
+            panel.style.display = 'block';
+            panel.scrollIntoView({ behavior: 'smooth' });
+            await this.startWebcamFeed();
+            this.updateLiveRecordsUI();
+            this.showStatusBanner('Session started. Position faces inside camera frame.', 'info');
+        } else {
+            alert(res.message || 'Failed to start session');
         }
     },
 
@@ -189,7 +199,7 @@ const teacher = {
 
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('⚠️ Camera access error. Please grant webcam permissions in browser.');
+                this.showStatusBanner('⚠️ Camera access error. Please grant webcam permissions in browser.', 'error');
                 return;
             }
 
@@ -197,19 +207,62 @@ const teacher = {
                 video: { width: 640, height: 480, facingMode: 'user' }
             });
             video.srcObject = stream;
+            const metaLabel = document.getElementById('cameraStatusLabel');
+            if (metaLabel) metaLabel.innerText = 'Camera Active';
         } catch (err) {
             console.error("Webcam stream error:", err);
-            alert(`⚠️ Camera access error: ${err.message || 'Permission denied'}`);
+            this.showStatusBanner(`⚠️ Camera access error: ${err.message || 'Permission denied'}`, 'error');
         }
+    },
+
+    pauseCameraFeed() {
+        const video = document.getElementById('webcamVideo');
+        const pauseBtn = document.getElementById('pauseCamBtn');
+        const metaLabel = document.getElementById('cameraStatusLabel');
+
+        if (video && video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.enabled = false);
+        }
+        if (metaLabel) metaLabel.innerText = 'Camera Paused';
+        if (pauseBtn) {
+            pauseBtn.innerHTML = '<i class="fa-solid fa-play"></i> Resume Camera';
+            pauseBtn.onclick = () => this.resumeCameraFeed();
+        }
+        this.showStatusBanner('Camera feed paused.', 'warning');
+    },
+
+    resumeCameraFeed() {
+        const video = document.getElementById('webcamVideo');
+        const pauseBtn = document.getElementById('pauseCamBtn');
+        const metaLabel = document.getElementById('cameraStatusLabel');
+
+        if (video && video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.enabled = true);
+        }
+        if (metaLabel) metaLabel.innerText = 'Camera Active';
+        if (pauseBtn) {
+            pauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause';
+            pauseBtn.onclick = () => this.pauseCameraFeed();
+        }
+        this.showStatusBanner('Camera feed active.', 'success');
     },
 
     resumeLiveVideoFeed() {
         const video = document.getElementById('webcamVideo');
         const img = document.getElementById('processedStreamImg');
         const resumeBtn = document.getElementById('resumeStreamBtn');
+        const metaLabel = document.getElementById('cameraStatusLabel');
+
         if (img) img.style.display = 'none';
-        if (video) video.style.display = 'block';
+        if (video) {
+            video.style.display = 'block';
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.enabled = true);
+            }
+        }
         if (resumeBtn) resumeBtn.style.display = 'none';
+        if (metaLabel) metaLabel.innerText = 'Camera Active';
+        this.showStatusBanner('Returned to live camera feed.', 'info');
     },
 
     async triggerSnapDetection() {
@@ -228,18 +281,40 @@ const teacher = {
 
         const video = document.getElementById('webcamVideo');
         const canvas = document.getElementById('webcamCanvas');
-        if (!video || !video.videoWidth) return;
+        const snapBtn = document.getElementById('snapDetectionBtn');
+        const metaLabel = document.getElementById('cameraStatusLabel');
+
+        if (!video) {
+            this.showStatusBanner('Video element missing.', 'error');
+            return;
+        }
+
+        if (video.style.display === 'none') {
+            this.resumeLiveVideoFeed();
+        }
+
+        if (!video.videoWidth) {
+            this.showStatusBanner('Camera stream not active yet. Please wait for camera to warm up.', 'warning');
+            return;
+        }
 
         this.isProcessingFrame = true;
+        if (snapBtn) {
+            snapBtn.disabled = true;
+            snapBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing AI Frame...';
+        }
+        if (metaLabel) metaLabel.innerText = 'Processing AI...';
+        this.showStatusBanner('Analyzing frame for faces...', 'info');
+
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const frameB64 = canvas.toDataURL('image/jpeg', 0.7);
+        const frameB64 = canvas.toDataURL('image/jpeg', 0.75);
 
         try {
-            const res = await fetch(getApiUrl(`/api/sessions/${this.activeSessionId}/process_frame`), {
+            const res = await safeApiFetch(`/api/sessions/${this.activeSessionId}/process_frame`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -248,87 +323,105 @@ const teacher = {
                 body: JSON.stringify({ frame: frameB64 })
             });
 
-            const data = await res.json();
-            if (data.success) {
+            if (res.ok && res.data && res.data.success) {
+                const data = res.data;
                 const img = document.getElementById('processedStreamImg');
-                img.src = data.processed_frame;
-                img.style.display = 'block';
+                if (img) {
+                    img.src = data.processed_frame;
+                    img.style.display = 'block';
+                }
                 video.style.display = 'none';
 
                 const resumeBtn = document.getElementById('resumeStreamBtn');
                 if (resumeBtn) resumeBtn.style.display = 'inline-flex';
 
-                this.updateLiveRecordsUI();
+                await this.updateLiveRecordsUI();
                 
-                const metaLabel = document.getElementById('cameraStatusLabel');
                 if (metaLabel) metaLabel.innerText = 'AI Detection Complete';
                 const countLabel = document.getElementById('liveDetectedCount');
                 if (countLabel) countLabel.innerText = data.recognized_count || 0;
+
+                if (data.newly_marked_present && data.newly_marked_present.length > 0) {
+                    this.showStatusBanner(`✓ Recognized & Marked PRESENT: ${data.newly_marked_present.join(', ')}`, 'success');
+                } else if (data.recognized_count > 0) {
+                    this.showStatusBanner(`Recognized ${data.recognized_count} student(s) (already marked present).`, 'info');
+                } else if (data.undetected_count > 0) {
+                    this.showStatusBanner(`Detected ${data.undetected_count} face(s) but no student match found (Unknown Face recorded).`, 'warning');
+                } else {
+                    this.showStatusBanner('No face detected in camera frame. Position face clearly.', 'warning');
+                }
+            } else {
+                this.showStatusBanner(`Detection error: ${res.message || 'Frame process failed'}`, 'error');
             }
         } catch (err) {
             console.error("Frame processing error:", err);
+            this.showStatusBanner(`Server connection error: ${err.message}`, 'error');
         } finally {
             this.isProcessingFrame = false;
+            if (snapBtn) {
+                snapBtn.disabled = false;
+                snapBtn.innerHTML = '<i class="fa-solid fa-camera-retro"></i> 📸 Snap Photo & Detect Faces';
+            }
         }
     },
 
     async updateLiveRecordsUI() {
         if (!this.activeSessionId) return;
-        try {
-            const res = await fetch(getApiUrl(`/api/sessions/${this.activeSessionId}`), {
-                headers: { 'Authorization': `Bearer ${auth.token}` }
+        const res = await safeApiFetch(`/api/sessions/${this.activeSessionId}`, {
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
+        if (res.ok && res.data && res.data.success && res.data.records) {
+            const list = document.getElementById('liveAttendanceList');
+            if (!list) return;
+            list.innerHTML = '';
+            let presentTotal = 0;
+            res.data.records.forEach(r => {
+                const li = document.createElement('li');
+                li.style.padding = '0.5rem 0';
+                li.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                li.style.alignItems = 'center';
+
+                if (r.status === 'PRESENT') presentTotal++;
+
+                let badgeHtml = r.status === 'PRESENT'
+                    ? '<span class="badge-status badge-present">✓ PRESENT</span>'
+                    : '<span class="badge-status badge-absent">ABSENT</span>';
+
+                li.innerHTML = `
+                    <span><strong>${r.student_name}</strong> (${r.roll_no})</span>
+                    ${badgeHtml}
+                `;
+                list.appendChild(li);
             });
-            const data = await res.json();
-            if (data.success) {
-                const list = document.getElementById('liveAttendanceList');
-                if (!list) return;
-                list.innerHTML = '';
-                data.records.forEach(r => {
-                    const li = document.createElement('li');
-                    li.style.padding = '0.5rem 0';
-                    li.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
-                    li.style.display = 'flex';
-                    li.style.justifyContent = 'space-between';
-                    li.style.alignItems = 'center';
 
-                    let badgeHtml = r.status === 'PRESENT'
-                        ? '<span class="badge-status badge-present">✓ PRESENT</span>'
-                        : '<span class="badge-status badge-absent">ABSENT</span>';
-
-                    li.innerHTML = `
-                        <span><strong>${r.student_name}</strong> (${r.roll_no})</span>
-                        ${badgeHtml}
-                    `;
-                    list.appendChild(li);
-                });
-            }
-        } catch (err) {
-            console.error(err);
+            const countLabel = document.getElementById('liveDetectedCount');
+            if (countLabel) countLabel.innerText = presentTotal;
         }
     },
 
     async submitSessionForApproval() {
         if (!this.activeSessionId) return;
 
-        try {
-            const res = await fetch(getApiUrl(`/api/sessions/${this.activeSessionId}/submit_approval`), {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${auth.token}` }
-            });
+        const res = await safeApiFetch(`/api/sessions/${this.activeSessionId}/submit_approval`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${auth.token}` }
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                alert("Attendance session submitted for Admin approval! (Status: Submitted for Approval)");
-            } else {
-                alert(data.message || "Failed to submit session.");
+        if (res.ok && res.data && res.data.success) {
+            alert("Attendance session submitted for Admin approval!");
+            const video = document.getElementById('webcamVideo');
+            if (video && video.srcObject) {
+                video.srcObject.getTracks().forEach(t => t.stop());
+                video.srcObject = null;
             }
-        } catch (err) {
-            console.error("Error submitting session for approval:", err);
-            alert("Error connecting to server.");
-        } finally {
-            document.getElementById('liveAttendancePanel').style.display = 'none';
+            const panel = document.getElementById('liveAttendancePanel');
+            if (panel) panel.style.display = 'none';
             this.activeSessionId = null;
             this.loadTeacherSessions();
+        } else {
+            alert(res.message || "Failed to submit session.");
         }
     },
 
@@ -339,21 +432,21 @@ const teacher = {
         gallery.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">Loading unknown faces...</div>';
 
         try {
-            const url = this.activeSessionId 
-                ? getApiUrl(`/api/unknown_faces?session_id=${this.activeSessionId}`)
-                : getApiUrl('/api/unknown_faces');
+            const path = this.activeSessionId 
+                ? `/api/unknown_faces?session_id=${this.activeSessionId}`
+                : '/api/unknown_faces';
 
             const [uRes, sRes] = await Promise.all([
-                fetch(url, {
+                safeApiFetch(path, {
                     headers: { 'Authorization': `Bearer ${auth.token}` }
                 }),
-                fetch(getApiUrl('/api/students'), {
+                safeApiFetch('/api/students', {
                     headers: { 'Authorization': `Bearer ${auth.token}` }
                 })
             ]);
 
-            const uData = await uRes.json();
-            const sData = await sRes.json();
+            const uData = uRes.data || {};
+            const sData = sRes.data || {};
 
             const unknownFaces = uData.unknown_faces || uData.undetected_faces || [];
             const students = sData.students || [];
@@ -415,27 +508,21 @@ const teacher = {
 
         const student_id = parseInt(select.value);
 
-        try {
-            const res = await fetch(getApiUrl('/api/teacher/assign_unknown_face'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ undetected_id: undetectedId, student_id })
-            });
+        const res = await safeApiFetch('/api/teacher/assign_unknown_face', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({ undetected_id: undetectedId, student_id })
+        });
 
-            const data = await res.json();
-            if (data.success) {
-                alert("Assignment submitted! Status: Pending Admin Approval");
-                this.loadUnknownFaces();
-                this.updateLiveRecordsUI();
-            } else {
-                alert(data.message || "Failed to submit assignment.");
-            }
-        } catch (err) {
-            console.error("Error assigning unknown face:", err);
-            alert("Error connecting to server.");
+        if (res.ok && res.data && res.data.success) {
+            alert("Assignment submitted! Status: Pending Admin Approval");
+            this.loadUnknownFaces();
+            this.updateLiveRecordsUI();
+        } else {
+            alert(res.message || "Failed to submit assignment.");
         }
     },
 
