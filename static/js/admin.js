@@ -917,28 +917,12 @@ const admin = {
             headers: { 'Authorization': `Bearer ${auth.token}` }
         });
         if (res.ok && res.data && res.data.success) {
-            this.renderAdminReportsTable(res.data.sessions);
-        } else if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#ef4444; padding:2rem;">Failed to load attendance sessions.</td></tr>';
-        }
-    },
-
-            const sessionsList = data ? (data.sessions || data.data || (Array.isArray(data) ? data : [])) : [];
-            console.log("[ADMIN REPORTS] Session count:", sessionsList.length);
-
+            const sessionsList = res.data.sessions || [];
             const countEl = document.getElementById('adminCountSessions');
             if (countEl) countEl.innerText = sessionsList.length;
-
-            console.log("[ADMIN REPORTS] Rendering table...");
             this.renderAdminReportsTable(sessionsList);
-        } catch (err) {
-            console.error("[ADMIN REPORTS] Error loading admin reports:", err);
-            if (tbody) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: #ef4444; padding: 2rem;">
-                    Unable to load attendance sessions. 
-                    <button onclick="admin.loadAdminReports()" class="btn btn-outline btn-sm" style="margin-left: 0.5rem;"><i class="fa-solid fa-rotate"></i> Retry</button>
-                </td></tr>`;
-            }
+        } else if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#ef4444; padding:2rem;">Failed to load attendance sessions.</td></tr>';
         }
     },
 
@@ -1319,10 +1303,11 @@ const admin = {
     analyticsClassChartInstance: null,
 
     async loadAnalytics() {
-        const res = await safeApiFetch('/api/analytics', {
-            headers: { 'Authorization': `Bearer ${auth.token}` }
-        });
-        if (!res.ok || !res.data || !res.data.success || !res.data.analytics) return;
+        try {
+            const res = await safeApiFetch('/api/analytics', {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            if (!res.ok || !res.data || !res.data.success || !res.data.analytics) return;
 
         const a = res.data.analytics;
             
