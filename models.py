@@ -31,20 +31,13 @@ class Student(db.Model):
     name = db.Column(db.String(120), nullable=False)
     roll_no = db.Column(db.String(50), nullable=False)
     class_name = db.Column(db.String(50), nullable=False)
-    parent_email = db.Column(db.String(120), nullable=True) # Kept for backward compatibility
-    parent_phone = db.Column(db.String(20), nullable=True) # Stores parent mobile number
+    parent_email = db.Column(db.String(120), nullable=False) # Required parent email for absence notifications
+    parent_phone = db.Column(db.String(20), nullable=True) # Deprecated
     face_image_path = db.Column(db.String(255), nullable=True)
     face_image_b64 = db.Column(db.Text, nullable=True) # Persistent Base64 face image fallback
-    encoding_json = db.Column(db.Text, nullable=True) # JSON stored array of float features
+    encoding_json = db.Column(db.Text, nullable=True) # JSON stored array of float features (128-D vector list)
+    is_active = db.Column(db.Boolean, default=True, nullable=False) # Active state for soft deactivation
     created_at = db.Column(db.DateTime, default=datetime.now)
-
-    @property
-    def parent_mobile_number(self):
-        return self.parent_phone or ''
-
-    @parent_mobile_number.setter
-    def parent_mobile_number(self, value):
-        self.parent_phone = value
 
     def to_dict(self):
         return {
@@ -54,10 +47,9 @@ class Student(db.Model):
             'roll_no': self.roll_no,
             'class_name': self.class_name,
             'parent_email': self.parent_email,
-            'parent_phone': self.parent_phone,
-            'parent_mobile_number': self.parent_phone,
             'face_image_path': self.face_image_path,
             'has_face': self.encoding_json is not None,
+            'is_active': self.is_active,
             'created_at': self.created_at.strftime('%Y-%m-%d %I:%M:%S %p') if self.created_at else ''
         }
 

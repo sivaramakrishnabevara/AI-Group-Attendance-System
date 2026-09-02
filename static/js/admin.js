@@ -8,11 +8,11 @@ const admin = {
         this.loadTeachers();
         this.loadStudents();
         this.loadAdminReports();
-        this.loadSMSSettings();
+        this.loadEmailSettings();
     },
 
     showTab(tabName) {
-        const tabs = ['Teachers', 'Students', 'UnknownFaces', 'Reports', 'Email'];
+        const tabs = ['Teachers', 'Students', 'UnknownFaces', 'Reports', 'Email', 'Analytics'];
         tabs.forEach(t => {
             const btn = document.getElementById(`tabBtn${t}`);
             const content = document.getElementById(`adminTab${t}`);
@@ -38,6 +38,8 @@ const admin = {
         } else if (tabName.toLowerCase() === 'email') {
             this.loadEmailSettings();
             this.loadEmailLogs();
+        } else if (tabName.toLowerCase() === 'analytics') {
+            this.loadAnalytics();
         }
     },
 
@@ -1315,6 +1317,8 @@ const admin = {
 
     openTestEmailModal() {
         const modal = document.getElementById('testEmailModal');
+        const box = document.getElementById('testEmailResultBox');
+        if (box) box.style.display = 'none';
         if (modal) modal.classList.add('active');
     },
 
@@ -1326,9 +1330,21 @@ const admin = {
     async handleSendTestEmail(e) {
         if (e) e.preventDefault();
         const targetEmail = document.getElementById('testEmailTargetInput').value.trim();
+        const box = document.getElementById('testEmailResultBox');
+        const btn = document.getElementById('sendTestEmailBtn');
+
         if (!targetEmail) {
-            alert('Please enter a target email address.');
+            alert('Please enter a target recipient email address.');
             return;
+        }
+
+        if (btn) btn.disabled = true;
+        if (box) {
+            box.style.display = 'block';
+            box.style.background = 'rgba(0, 242, 254, 0.1)';
+            box.style.border = '1px solid rgba(0, 242, 254, 0.3)';
+            box.style.color = '#ffffff';
+            box.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Contacting Resend HTTPS REST API over Port 443...';
         }
 
         try {
@@ -1340,14 +1356,170 @@ const admin = {
                 },
                 body: JSON.stringify({ email: targetEmail })
             });
+
             const data = await res.json();
-            alert(data.message);
-            if (data.success) {
-                this.closeTestEmailModal();
+            const d = data.details || {};
+            const isSuccess = data.success;
+
+            if (box) {
+                box.style.display = 'block';
+                if (isSuccess) {
+                    box.style.background = 'rgba(16, 185, 129, 0.15)';
+                    box.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+                    box.style.color = '#10b981';
+                } else {
+                    box.style.background = 'rgba(239, 68, 68, 0.15)';
+                    box.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+                    box.style.color = '#ef4444';
+                }
+
+                const statusBadge = isSuccess ? '<span class="badge-status badge-present">ACCEPTED</span>' : '<span class="badge-status badge-absent">REJECTED</span>';
+                const httpCode = d.http_status ? `HTTP ${d.http_status}` : 'N/A';
+
+                box.innerHTML = `
+                    <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <span>Provider: <strong>${d.provider || 'RESEND'}</strong> (${httpCode})</span>
+                        ${statusBadge}
+                    </div>
+                    <div style="font-size: 0.85rem; line-height: 1.5; color: var(--text-main);">
+                        ${isSuccess ? '✓ ' + data.message : '❌ ' + (d.error_message || data.message)}
+                    </div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; border-top: 1px solid var(--border-glass); padding-top: 0.4rem;">
+                        DB Log Entry: ${d.log_entry ? 'Saved Log #' + d.log_entry.id + ' (' + d.log_entry.status + ')' : 'Persisted'}
+                    </div>
+                `;
+            }
+
+            if (isSuccess) {
                 this.loadEmailLogs();
             }
         } catch (err) {
-            alert("Error sending test email.");
+            if (box) {
+                box.style.display = 'block';
+                box.style.background = 'rgba(239, 68, 68, 0.15)';
+                box.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+                box.style.color = '#ef4444';
+                box.innerHTML = '❌ Connection failure dispatching HTTPS request.';
+            }
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    analyticsRiskChartInstance: null,
+    analyticsClassChartInstance: null,
+
+    async loadAnalytics() {
+        try {
+            const res = await fetch(getApiUrl('/api/analytics'), {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const data = await res.json();
+            if (!data.success || !data.analytics) return;
+
+            const a = data.analytics;
+            
+            const avgEl = document.getElementById('analyticsAvgRate');
+            const lowEl = document.getElementById('analyticsLowRiskCount');
+            const medEl = document.getElementById('analyticsMedRiskCount');
+            const highEl = document.getElementById('analyticsHighRiskCount');
+            
+            if (avgEl) avgEl.textContent = `${a.average_attendance}%`;
+            if (lowEl) lowEl.textContent = a.risk_distribution.low_risk;
+            if (medEl) medEl.textContent = a.risk_distribution.medium_risk;
+            if (highEl) highEl.textContent = a.risk_distribution.high_risk;
+
+            // Render Student Table
+            const tbody = document.getElementById('adminAnalyticsTableBody');
+            if (tbody) {
+                tbody.innerHTML = '';
+                if (!a.student_stats || a.student_stats.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">No student attendance data found.</td></tr>';
+                } else {
+                    a.student_stats.forEach(st => {
+                        let riskBadge = '';
+                        if (st.risk === 'LOW_RISK') {
+                            riskBadge = '<span class="badge-status badge-present">LOW RISK (>=85%)</span>';
+                        } else if (st.risk === 'MEDIUM_RISK') {
+                            riskBadge = '<span class="badge-status badge-pending" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">MEDIUM RISK (75-84%)</span>';
+                        } else {
+                            riskBadge = '<span class="badge-status badge-absent">HIGH RISK (<75%)</span>';
+                        }
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${st.roll_no}</td>
+                            <td><strong>${st.name}</strong></td>
+                            <td>${st.class_name}</td>
+                            <td><strong>${st.rate}%</strong></td>
+                            <td>${riskBadge}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            }
+
+            // Render Charts using Chart.js if available
+            if (typeof Chart !== 'undefined') {
+                // Risk Chart
+                const ctxRisk = document.getElementById('analyticsRiskChart');
+                if (ctxRisk) {
+                    if (this.analyticsRiskChartInstance) this.analyticsRiskChartInstance.destroy();
+                    this.analyticsRiskChartInstance = new Chart(ctxRisk, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['Low Risk (>=85%)', 'Medium Risk (75-84%)', 'High Risk (<75%)'],
+                            datasets: [{
+                                data: [a.risk_distribution.low_risk, a.risk_distribution.medium_risk, a.risk_distribution.high_risk],
+                                backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { position: 'bottom', labels: { color: '#94a3b8' } }
+                            }
+                        }
+                    });
+                }
+
+                // Class Breakdown Chart
+                const ctxClass = document.getElementById('analyticsClassChart');
+                if (ctxClass) {
+                    const classLabels = Object.keys(a.class_breakdown || {});
+                    const classData = Object.values(a.class_breakdown || {});
+
+                    if (this.analyticsClassChartInstance) this.analyticsClassChartInstance.destroy();
+                    this.analyticsClassChartInstance = new Chart(ctxClass, {
+                        type: 'bar',
+                        data: {
+                            labels: classLabels,
+                            datasets: [{
+                                label: 'Attendance Rate %',
+                                data: classData,
+                                backgroundColor: '#38bdf8',
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: { min: 0, max: 100, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                x: { ticks: { color: '#94a3b8' }, grid: { display: false } }
+                            },
+                            plugins: {
+                                legend: { display: false }
+                            }
+                        }
+                    });
+                }
+            }
+
+        } catch (err) {
+            console.error("Error loading analytics:", err);
         }
     }
 };

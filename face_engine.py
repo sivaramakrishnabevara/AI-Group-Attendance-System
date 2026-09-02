@@ -322,6 +322,8 @@ class FaceEngine:
             highest_sim = 0.0
 
             for student in student_records:
+                if hasattr(student, 'is_active') and not student.is_active:
+                    continue
                 if not student.encoding_json:
                     continue
                 if student.id in assigned_student_ids:

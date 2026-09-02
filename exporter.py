@@ -27,11 +27,11 @@ def export_attendance_to_excel(session, records, file_path):
 
     # Session Meta
     ws.cell(row=2, column=1, value=f"Class: {session.class_name}").font = Font(bold=True)
-    ws.cell(row=2, column=4, value=f"Teacher: {session.created_by_teacher_name}").font = Font(bold=True)
+    ws.cell(row=2, column=4, value=f"Professor: {session.created_by_teacher_name}").font = Font(bold=True)
     ws.cell(row=2, column=6, value=f"Date: {session.created_at.strftime('%Y-%m-%d %H:%M')}").font = Font(bold=True)
     
     # Headers
-    headers = ["S.No", "Roll No", "Student Name", "Class", "Status", "Marking Method", "Teacher Override / Marked By"]
+    headers = ["S.No", "Roll No", "Student Name", "Class", "Status", "Marking Method", "Professor Override / Marked By"]
     header_fill = PatternFill(start_color='1E293B', end_color='1E293B', fill_type='solid')
     header_font = Font(name='Segoe UI', size=11, bold=True, color='38BDF8')
     thin_border = Border(
@@ -141,7 +141,7 @@ def export_attendance_to_pdf(session, records, file_path):
     
     # Title & Header
     elements.append(Paragraph(f"AI Attendance Report: {session.session_title}", title_style))
-    elements.append(Paragraph(f"Class: <b>{session.class_name}</b> | Conducted by: <b>{session.created_by_teacher_name}</b> | Date: <b>{session.created_at.strftime('%Y-%m-%d %H:%M')}</b>", subtitle_style))
+    elements.append(Paragraph(f"Class: <b>{session.class_name}</b> | Professor: <b>{session.created_by_teacher_name}</b> | Date: <b>{session.created_at.strftime('%Y-%m-%d %H:%M')}</b>", subtitle_style))
     
     # Summary Statistics Box
     total_st = len(records)

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Face datasets / personal images
+dataset/students/
+dataset/unknown_faces/
+dataset/sessions/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

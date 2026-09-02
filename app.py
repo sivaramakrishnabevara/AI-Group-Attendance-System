@@ -12,10 +12,9 @@ import cv2
 import numpy as np
 
 from config import Config
-from models import db, User, Student, AttendanceSession, AttendanceRecord, UndetectedFace, SystemSetting, SMSLog, EmailLog
+from models import db, User, Student, AttendanceSession, AttendanceRecord, UndetectedFace, SystemSetting, EmailLog
 from database import init_db
 from face_engine import face_engine
-from sms_service import send_parent_absent_sms, send_test_sms, get_sms_config, normalize_indian_mobile
 from email_service import send_parent_absent_email, send_test_email, get_email_config, validate_email_address
 from exporter import export_attendance_to_excel, export_attendance_to_pdf
 
@@ -270,7 +269,10 @@ def update_teacher(current_user, teacher_id):
 @token_required
 def get_students(current_user):
     class_filter = request.args.get('class_name')
+    include_inactive = request.args.get('include_inactive', 'false').lower() in ('true', '1')
     query = Student.query
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
     if class_filter:
         query = query.filter_by(class_name=class_filter)
     students = query.all()
@@ -430,11 +432,19 @@ def detect_face_check(current_user):
 @admin_only
 def delete_student(current_user, student_id):
     """
-    Admin can delete student.
+    Admin deactivates or deletes student.
+    If historical attendance records exist, performs safe soft deactivation (is_active=False)
+    so historical data is preserved while excluding student from future recognition.
     """
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'success': False, 'message': 'Student not found'}), 404
+
+    attendance_count = AttendanceRecord.query.filter_by(student_id=student_id).count()
+    if attendance_count > 0:
+        student.is_active = False
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'Student {student.name} deactivated. Historical attendance preserved.'})
 
     if student.face_image_path:
         full_p = os.path.join(Config.DATA_DIR, student.face_image_path)
@@ -582,8 +592,8 @@ def start_attendance_session(current_user):
     db.session.add(session)
     db.session.commit()
 
-    # Pre-populate session records for all students in class as ABSENT initially
-    class_students = Student.query.filter_by(class_name=class_name).all()
+    # Pre-populate session records for all active students in class as ABSENT initially
+    class_students = Student.query.filter_by(class_name=class_name, is_active=True).all()
     for st in class_students:
         rec = AttendanceRecord(
             session_id=session.id,
@@ -625,7 +635,7 @@ def process_webcam_frame(current_user, session_id):
     if img_np is None:
         return jsonify({'success': False, 'message': 'Invalid frame format'}), 400
 
-    class_students = Student.query.filter_by(class_name=session.class_name).all()
+    class_students = Student.query.filter_by(class_name=session.class_name, is_active=True).all()
 
     # Automatically re-encode student face images if needed (supporting DB base64 fallback)
     for st in class_students:
@@ -764,8 +774,8 @@ def finalize_session_by_admin(current_user, session_id):
         if rec.status == 'PRESENT' and rec.approval_status == 'APPROVED':
             present_student_ids.add(rec.student_id)
 
-    # Mark all missing registered students in class as ABSENT
-    class_students = Student.query.filter_by(class_name=session.class_name).all()
+    # Mark all missing registered active students in class as ABSENT
+    class_students = Student.query.filter_by(class_name=session.class_name, is_active=True).all()
     for st in class_students:
         rec = AttendanceRecord.query.filter_by(session_id=session.id, student_id=st.id).first()
         if not rec:
@@ -806,7 +816,7 @@ def finalize_session_by_admin(current_user, session_id):
             logging.getLogger("app").warning(f"Parent email missing for student {st_info}")
             continue
 
-        success, msg = send_parent_absent_email(
+        success, msg, details = send_parent_absent_email(
             parent_email=parent_email,
             student_name=r.student.name,
             roll_no=r.student.roll_no,
@@ -835,7 +845,7 @@ def finalize_session_by_admin(current_user, session_id):
     elif len(absent_records) == 0:
         res_msg = "Attendance finalized! All registered students were present."
     else:
-        first_info = email_logs_res[0]['message'] if email_logs_res else "Gmail SMTP service is not configured."
+        first_info = email_logs_res[0]['message'] if email_logs_res else "Resend HTTPS Email API credentials missing or invalid."
         res_msg = f"Attendance finalized. Parent Email status: {first_info}"
 
     return jsonify({
@@ -1092,21 +1102,99 @@ def send_test_email_route(current_user):
     if not validate_email_address(target_email):
         return jsonify({'success': False, 'message': 'Invalid recipient email.'}), 400
 
-    success, msg = send_test_email(target_email, current_user.full_name)
-    return jsonify({'success': success, 'message': msg})
+    success, msg, details = send_test_email(target_email, current_user.full_name)
+    return jsonify({
+        'success': success,
+        'message': msg,
+        'details': details
+    })
 
-@app.route('/api/admin/settings/test_sms', methods=['POST'])
+@app.route('/api/analytics', methods=['GET'])
 @token_required
-@admin_only
-def send_test_sms_route(current_user):
-    data = request.get_json() or {}
-    target_phone = data.get('target_phone', '').strip()
+def get_analytics(current_user):
+    """
+    Returns attendance analytics:
+    - Total Students
+    - Average Attendance %
+    - Total Present Count, Absent Count
+    - Class-wise breakdown
+    - Risk distribution (Low >=85%, Medium 75-84%, High <75%)
+    """
+    active_students = Student.query.filter_by(is_active=True).all()
+    total_students = len(active_students)
+    
+    finalized_sessions = AttendanceSession.query.filter_by(status='FINALIZED').all()
+    total_finalized_sessions = len(finalized_sessions)
+    
+    student_stats = []
+    low_risk = 0
+    med_risk = 0
+    high_risk = 0
+    
+    class_totals = {}
+    class_presents = {}
+    
+    total_present_records = 0
+    total_absent_records = 0
+    
+    for st in active_students:
+        recs = AttendanceRecord.query.filter_by(student_id=st.id).all()
+        finalized_recs = [r for r in recs if r.session and r.session.status == 'FINALIZED']
+        total_st_recs = len(finalized_recs)
+        present_st_recs = len([r for r in finalized_recs if r.status == 'PRESENT'])
+        absent_st_recs = len([r for r in finalized_recs if r.status == 'ABSENT'])
+        
+        total_present_records += present_st_recs
+        total_absent_records += absent_st_recs
+        
+        rate = round((present_st_recs / total_st_recs * 100), 1) if total_st_recs > 0 else 100.0
+        
+        if rate >= 85.0:
+            low_risk += 1
+            risk = 'LOW_RISK'
+        elif rate >= 75.0:
+            med_risk += 1
+            risk = 'MEDIUM_RISK'
+        else:
+            high_risk += 1
+            risk = 'HIGH_RISK'
+            
+        c_name = st.class_name or 'General'
+        class_totals[c_name] = class_totals.get(c_name, 0) + total_st_recs
+        class_presents[c_name] = class_presents.get(c_name, 0) + present_st_recs
+        
+        student_stats.append({
+            'student_id': st.id,
+            'name': st.name,
+            'roll_no': st.roll_no,
+            'class_name': st.class_name,
+            'rate': rate,
+            'risk': risk
+        })
+        
+    avg_attendance = round(sum(s['rate'] for s in student_stats) / len(student_stats), 1) if student_stats else 0.0
+    
+    class_breakdown = {}
+    for c_name, tot in class_totals.items():
+        class_breakdown[c_name] = round((class_presents[c_name] / tot * 100), 1) if tot > 0 else 0.0
 
-    if not target_phone:
-        return jsonify({'success': False, 'message': 'Target mobile number is required'}), 400
-
-    success, msg = send_test_sms(target_phone, current_user.full_name)
-    return jsonify({'success': success, 'message': msg})
+    return jsonify({
+        'success': True,
+        'analytics': {
+            'total_students': total_students,
+            'total_sessions': total_finalized_sessions,
+            'average_attendance': avg_attendance,
+            'total_present_records': total_present_records,
+            'total_absent_records': total_absent_records,
+            'risk_distribution': {
+                'low_risk': low_risk,
+                'medium_risk': med_risk,
+                'high_risk': high_risk
+            },
+            'class_breakdown': class_breakdown,
+            'student_stats': student_stats
+        }
+    })
 
 # -------------------------------------------------------------------
 # Reports & Download Routes (Excel & PDF - Teacher + Admin) (Req 10 & 11)

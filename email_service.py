@@ -114,7 +114,7 @@ def get_email_config():
 
 def _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body, status):
     """
-    Persists Email log entry in database.
+    Persists Email log entry in database and returns the log instance.
     """
     try:
         from models import db, EmailLog
@@ -131,14 +131,17 @@ def _record_email_log(session_id, student_id, student_name, roll_no, parent_emai
         )
         db.session.add(log_entry)
         db.session.commit()
+        return log_entry
     except Exception as e:
         logger.error(f"Failed to save email log: {e}")
+        return None
 
 def _send_via_https_api(to_email, subject, body_text, conf):
     """
     Dispatches transactional email via HTTPS REST API (Port 443).
     Bypasses Render Free SMTP port blocks completely.
     Supports RESEND, BREVO, and SENDGRID.
+    Returns: (success_bool, message_str, details_dict)
     """
     import requests
 
@@ -150,7 +153,12 @@ def _send_via_https_api(to_email, subject, body_text, conf):
     if not api_key:
         err_msg = f"HTTPS Email API key missing for provider {provider}."
         logger.warning(f"[EMAIL_API] {err_msg}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': None,
+            'provider': provider,
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
 
     logger.info(f"[EMAIL_API] Preparing HTTPS POST request for provider={provider} target={masked_target}")
 
@@ -197,10 +205,16 @@ def _send_via_https_api(to_email, subject, body_text, conf):
         response = requests.post(url, headers=headers, json=payload, timeout=10)
 
         if response.status_code in (200, 201, 202):
+            msg = f"Email sent successfully via {provider} HTTPS API (HTTP {response.status_code})."
             logger.info(f"[EMAIL_API] Message accepted by {provider} API for {masked_target} (HTTP {response.status_code})")
-            return True, f"Email sent successfully via {provider} HTTPS API."
+            return True, msg, {
+                'http_status': response.status_code,
+                'provider': provider,
+                'provider_result': 'ACCEPTED',
+                'error_message': None,
+                'response_text': response.text[:200]
+            }
         else:
-            # Parse error summary without exposing secrets
             try:
                 err_json = response.json()
                 err_detail = err_json.get('message') or err_json.get('error') or response.text[:150]
@@ -208,16 +222,32 @@ def _send_via_https_api(to_email, subject, body_text, conf):
                 err_detail = response.text[:150]
             err_msg = f"{provider} API returned HTTP {response.status_code}: {err_detail}"
             logger.error(f"[EMAIL_API] Failed for {masked_target}: {err_msg}")
-            return False, err_msg
+            return False, err_msg, {
+                'http_status': response.status_code,
+                'provider': provider,
+                'provider_result': 'REJECTED',
+                'error_message': err_msg,
+                'response_text': response.text[:200]
+            }
 
     except requests.RequestException as req_err:
         err_msg = f"{provider} HTTPS network request failed: {str(req_err)}"
         logger.error(f"[EMAIL_API] Network error for {masked_target}: {err_msg}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': None,
+            'provider': provider,
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
     except Exception as ex:
         err_msg = f"Unexpected error during HTTPS email dispatch: {str(ex)}"
         logger.error(f"[EMAIL_API] Exception for {masked_target}: {err_msg}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': None,
+            'provider': provider,
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
 
 def _send_via_smtp(to_email, subject, body_text, conf):
     """
@@ -238,20 +268,41 @@ def _send_via_smtp(to_email, subject, body_text, conf):
         server.send_message(msg_mime)
         server.quit()
 
+        msg = f"Parent email sent successfully to {masked_target} via local SMTP"
         logger.info(f"[GMAIL_SMTP] Email accepted for {masked_target}")
-        return True, f"Parent email sent successfully to {masked_target} via local SMTP"
+        return True, msg, {
+            'http_status': 250,
+            'provider': 'GMAIL_SMTP',
+            'provider_result': 'ACCEPTED',
+            'error_message': None
+        }
     except smtplib.SMTPAuthenticationError:
         err_msg = "Gmail authentication failed."
         logger.error(f"[GMAIL_SMTP] Email failed: {err_msg} for {masked_target}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': 535,
+            'provider': 'GMAIL_SMTP',
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
     except smtplib.SMTPConnectError:
         err_msg = "Gmail SMTP connection failed."
         logger.error(f"[GMAIL_SMTP] Email failed: {err_msg}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': None,
+            'provider': 'GMAIL_SMTP',
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
     except Exception as e:
         err_msg = f"Gmail SMTP connection failed: {str(e)}"
         logger.error(f"[GMAIL_SMTP] Email failed: {err_msg} for {masked_target}")
-        return False, err_msg
+        return False, err_msg, {
+            'http_status': None,
+            'provider': 'GMAIL_SMTP',
+            'provider_result': 'REJECTED',
+            'error_message': err_msg
+        }
 
 def send_parent_absent_email(parent_email, student_name, roll_no, class_name, date_str, teacher_name='Professor', session_title='Session', session_id=None, student_id=None, force_test=False):
     """
@@ -262,24 +313,25 @@ def send_parent_absent_email(parent_email, student_name, roll_no, class_name, da
     if not validate_email_address(parent_email):
         msg = "Invalid recipient email."
         logger.warning(f"[EMAIL] Email failed: {msg} ({parent_email})")
-        return False, msg
+        return False, msg, {'http_status': 400, 'provider_result': 'REJECTED', 'error_message': msg}
 
     conf = get_email_config()
 
     if not force_test and not conf['enable_email_alerts']:
         msg = "Email alerts are disabled in system settings."
         logger.info(f"[EMAIL] Email disabled: {msg}")
-        return False, msg
+        return False, msg, {'http_status': 400, 'provider_result': 'REJECTED', 'error_message': msg}
 
     subject = f"Attendance Alert - {student_name} Marked Absent"
     body_text = (
         f"Dear Parent,\n\n"
-        f"This is to inform you that your child was marked ABSENT.\n\n"
+        f"This is to inform you that your child:\n\n"
         f"Student Name: {student_name}\n"
         f"Roll Number: {roll_no}\n"
         f"Class: {class_name}\n"
         f"Date: {date_str}\n"
         f"Attendance Status: ABSENT\n\n"
+        f"Your child was marked absent during today's attendance session.\n\n"
         f"Please contact the institution if this absence is unexpected.\n\n"
         f"Regards,\n"
         f"AI Group Attendance System"
@@ -290,42 +342,57 @@ def send_parent_absent_email(parent_email, student_name, roll_no, class_name, da
     if not conf['has_credentials']:
         msg = f"Email credentials for mode={conf['email_mode']} are missing."
         logger.warning(f"[EMAIL] Email failed: {msg} for {masked_target}")
-        _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
-        return False, msg
+        log_obj = _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, 'FAILED')
+        return False, msg, {
+            'http_status': None,
+            'provider': conf['email_provider'],
+            'provider_result': 'REJECTED',
+            'error_message': msg,
+            'log_entry': log_obj.to_dict() if log_obj else None
+        }
 
     if conf['email_mode'] == 'API':
-        success, msg = _send_via_https_api(parent_email, subject, body_text, conf)
+        success, msg, details = _send_via_https_api(parent_email, subject, body_text, conf)
     else:
-        success, msg = _send_via_smtp(parent_email, subject, body_text, conf)
+        success, msg, details = _send_via_smtp(parent_email, subject, body_text, conf)
 
     status = 'SENT' if success else 'FAILED'
-    _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, status)
-    
-    if success:
-        return True, "Test email sent successfully." if force_test else f"Parent email sent successfully to {masked_target}"
-    else:
-        return False, msg
+    log_obj = _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body_text, status)
+    if log_obj:
+        details['log_entry'] = log_obj.to_dict()
+
+    return success, msg, details
 
 def send_test_email(target_email, teacher_name='Admin'):
     """
     Sends a test email notification to verify HTTPS API or local SMTP configuration.
     """
     if not validate_email_address(target_email):
-        return False, "Invalid recipient email."
+        return False, "Invalid recipient email.", {'http_status': 400, 'provider_result': 'REJECTED', 'error_message': "Invalid recipient email."}
 
     conf = get_email_config()
     if not conf['has_credentials']:
-        return False, f"Email credentials for mode={conf['email_mode']} are missing."
+        err_msg = f"Email credentials for mode={conf['email_mode']} are missing."
+        log_obj = _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", "AI Group Attendance System - Test Email", "This is a test email.", 'FAILED')
+        return False, err_msg, {
+            'http_status': None,
+            'provider': conf['email_provider'],
+            'provider_result': 'REJECTED',
+            'error_message': err_msg,
+            'log_entry': log_obj.to_dict() if log_obj else None
+        }
 
     subject = "AI Group Attendance System - Test Email"
     body_text = "This is a test email from the AI Group Attendance System."
-    masked_target = mask_email(target_email)
 
     if conf['email_mode'] == 'API':
-        success, msg = _send_via_https_api(target_email, subject, body_text, conf)
+        success, msg, details = _send_via_https_api(target_email, subject, body_text, conf)
     else:
-        success, msg = _send_via_smtp(target_email, subject, body_text, conf)
+        success, msg, details = _send_via_smtp(target_email, subject, body_text, conf)
 
     status = 'SENT' if success else 'FAILED'
-    _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, status)
-    return success, msg
+    log_obj = _record_email_log(None, None, "Test Student", "TEST001", target_email, "Admin Test", subject, body_text, status)
+    if log_obj:
+        details['log_entry'] = log_obj.to_dict()
+
+    return success, msg, details

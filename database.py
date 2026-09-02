@@ -34,14 +34,12 @@ def init_db(app):
                     cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(students)").fetchall()]
                     if 'face_image_b64' not in cols:
                         conn.exec_driver_sql("ALTER TABLE students ADD COLUMN face_image_b64 TEXT;")
+                    if 'is_active' not in cols:
+                        conn.exec_driver_sql("ALTER TABLE students ADD COLUMN is_active BOOLEAN DEFAULT 1;")
                     
                     rec_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(attendance_records)").fetchall()]
                     if 'snapshot_b64' not in rec_cols:
                         conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN snapshot_b64 TEXT;")
-                    if 'sms_sent' not in rec_cols:
-                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN sms_sent BOOLEAN DEFAULT 0;")
-                    if 'sms_sent_at' not in rec_cols:
-                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN sms_sent_at DATETIME;")
                     
                     sess_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(attendance_sessions)").fetchall()]
                     if 'finalized_by_admin_id' not in sess_cols:
@@ -52,14 +50,16 @@ def init_db(app):
                     und_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(undetected_faces)").fetchall()]
                     if 'image_b64' not in und_cols:
                         conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN image_b64 TEXT;")
-                else: # PostgreSQL / Mysql
-                    conn.exec_driver_sql("ALTER TABLE students ADD COLUMN IF NOT EXISTS face_image_b64 TEXT;")
-                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS snapshot_b64 TEXT;")
-                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent BOOLEAN DEFAULT FALSE;")
-                    conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMP;")
-                    conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_id INTEGER;")
-                    conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_name VARCHAR(120);")
-                    conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN IF NOT EXISTS image_b64 TEXT;")
+                else: # PostgreSQL / MySQL
+                    try:
+                        conn.exec_driver_sql("ALTER TABLE students ADD COLUMN IF NOT EXISTS face_image_b64 TEXT;")
+                        conn.exec_driver_sql("ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;")
+                        conn.exec_driver_sql("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS snapshot_b64 TEXT;")
+                        conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_id INTEGER;")
+                        conn.exec_driver_sql("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS finalized_by_admin_name VARCHAR(120);")
+                        conn.exec_driver_sql("ALTER TABLE undetected_faces ADD COLUMN IF NOT EXISTS image_b64 TEXT;")
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"Column migration notice: {e}")
 

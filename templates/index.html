@@ -134,7 +134,8 @@
                     <button onclick="admin.showTab('students')" id="tabBtnStudents" class="btn btn-outline tab-3d"><i class="fa-solid fa-graduation-cap"></i> Manage Students</button>
                     <button onclick="admin.showTab('unknownfaces')" id="tabBtnUnknownFaces" class="btn btn-outline tab-3d"><i class="fa-solid fa-user-check"></i> Unknown Face Review</button>
                     <button onclick="admin.showTab('reports')" id="tabBtnReports" class="btn btn-outline tab-3d"><i class="fa-solid fa-clock-rotate-left"></i> Attendance Finalization & History</button>
-                    <button onclick="admin.showTab('email')" id="tabBtnEmail" class="btn btn-outline tab-3d"><i class="fa-solid fa-envelope"></i> Parent Email Alerts (Gmail)</button>
+                    <button onclick="admin.showTab('email')" id="tabBtnEmail" class="btn btn-outline tab-3d"><i class="fa-solid fa-envelope"></i> Parent Email Alerts</button>
+                    <button onclick="admin.showTab('analytics')" id="tabBtnAnalytics" class="btn btn-outline tab-3d"><i class="fa-solid fa-chart-pie"></i> Attendance Analytics</button>
                 </div>
 
                 <!-- Admin Tab Content: Unknown Face Review -->
@@ -355,6 +356,73 @@
                                     </tr>
                                 </thead>
                                 <tbody id="adminEmailLogsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tab Content: Analytics -->
+                <div id="adminTabAnalytics" class="glass-card holo-shimmer" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3 style="margin-bottom: 0.3rem;"><i class="fa-solid fa-chart-line" style="color: var(--neon-cyan);"></i> Attendance Analytics & Risk Summary</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">Overview of class attendance rates, student risk classifications, and overall attendance trends.</p>
+                        </div>
+                        <button onclick="admin.loadAnalytics()" class="btn btn-outline btn-sm"><i class="fa-solid fa-rotate"></i> Refresh Analytics</button>
+                    </div>
+
+                    <!-- Summary Stats Row -->
+                    <div class="grid-4" style="margin-bottom: 2rem;">
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem; text-align: center;">
+                            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Avg Attendance Rate</div>
+                            <div id="analyticsAvgRate" style="font-size: 1.8rem; font-weight: 800; color: var(--neon-cyan); margin-top: 0.3rem;">0%</div>
+                        </div>
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem; text-align: center;">
+                            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Low Risk (>= 85%)</div>
+                            <div id="analyticsLowRiskCount" style="font-size: 1.8rem; font-weight: 800; color: var(--neon-emerald); margin-top: 0.3rem;">0</div>
+                        </div>
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem; text-align: center;">
+                            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Medium Risk (75–84%)</div>
+                            <div id="analyticsMedRiskCount" style="font-size: 1.8rem; font-weight: 800; color: #f59e0b; margin-top: 0.3rem;">0</div>
+                        </div>
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem; text-align: center;">
+                            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">High Risk (< 75%)</div>
+                            <div id="analyticsHighRiskCount" style="font-size: 1.8rem; font-weight: 800; color: #ef4444; margin-top: 0.3rem;">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Grid -->
+                    <div class="grid-2" style="margin-bottom: 2rem;">
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--neon-cyan); font-size: 0.95rem;"><i class="fa-solid fa-chart-pie"></i> Student Risk Classification</h4>
+                            <div style="position: relative; height: 240px; display: flex; justify-content: center; align-items: center;">
+                                <canvas id="analyticsRiskChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(13,20,36,0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.25rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--neon-cyan); font-size: 0.95rem;"><i class="fa-solid fa-chart-column"></i> Class Attendance Rates</h4>
+                            <div style="position: relative; height: 240px;">
+                                <canvas id="analyticsClassChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Student Risk Table -->
+                    <div style="border-top: 1px solid var(--border-glass); padding-top: 1.5rem;">
+                        <h4 style="margin-bottom: 1rem;"><i class="fa-solid fa-table-list"></i> Individual Student Attendance & Risk Status</h4>
+                        <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+                            <table class="custom-table">
+                                <thead>
+                                    <tr>
+                                        <th>Roll No</th>
+                                        <th>Student Name</th>
+                                        <th>Class</th>
+                                        <th>Attendance Rate</th>
+                                        <th>Risk Category</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminAnalyticsTableBody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -795,6 +863,34 @@
         </div>
     </div>
 
+
+    <!-- Admin Send Test Email Modal -->
+    <div id="testEmailModal" class="modal-overlay">
+        <div class="modal-card glass-card holo-shimmer" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-paper-plane" style="color: var(--neon-cyan);"></i> Send Test Parent Email</h3>
+                <button onclick="admin.closeTestEmailModal()" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="admin.handleSendTestEmail(event)">
+                <div style="padding: 1rem 0;">
+                    <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1.25rem;">
+                        Send a single transactional test email via <strong>Resend HTTPS REST API (Port 443)</strong> to verify real email delivery.
+                    </p>
+                    <div class="form-group">
+                        <label class="form-label"><i class="fa-solid fa-envelope"></i> Target Recipient Email *</label>
+                        <input type="email" id="testEmailTargetInput" class="form-control" required placeholder="e.g. parent@example.com">
+                    </div>
+
+                    <!-- Result Status Container -->
+                    <div id="testEmailResultBox" style="display: none; margin-top: 1rem; padding: 1rem; border-radius: var(--radius-md); font-size: 0.85rem;"></div>
+                </div>
+                <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
+                    <button type="button" onclick="admin.closeTestEmailModal()" class="btn btn-outline">Cancel</button>
+                    <button type="submit" id="sendTestEmailBtn" class="btn btn-emerald"><i class="fa-solid fa-paper-plane"></i> Send Test Email Now</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Scripts -->
     <script src="/static/js/auth.js"></script>
