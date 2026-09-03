@@ -8,6 +8,7 @@ const admin = {
         this.loadTeachers();
         this.loadStudents();
         this.loadAdminReports();
+        this.loadPendingAttendance();
         this.loadEmailSettings();
     },
 
@@ -704,7 +705,7 @@ const admin = {
             headers: { 'Authorization': `Bearer ${auth.token}` }
         });
         if (res.ok && res.data && res.data.success) {
-            const pendingSessions = (res.data.sessions || []).filter(s => s.status !== 'COMPLETED' || s.pending_approval_count > 0);
+            const pendingSessions = (res.data.sessions || []).filter(s => s.status === 'SUBMITTED_FOR_APPROVAL' || s.status === 'IN_PROGRESS' || (s.status !== 'FINALIZED'));
             const count = pendingSessions.length;
             
             const cardEl = document.getElementById('adminCountPendingAttendance');
@@ -920,6 +921,13 @@ const admin = {
             const sessionsList = res.data.sessions || [];
             const countEl = document.getElementById('adminCountSessions');
             if (countEl) countEl.innerText = sessionsList.length;
+
+            const pendingCountEl = document.getElementById('adminCountPendingAttendance');
+            if (pendingCountEl) {
+                const pendingCount = sessionsList.filter(s => s.status === 'SUBMITTED_FOR_APPROVAL' || s.status !== 'FINALIZED').length;
+                pendingCountEl.innerText = pendingCount;
+            }
+
             this.renderAdminReportsTable(sessionsList);
         } else if (tbody) {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#ef4444; padding:2rem;">Failed to load attendance sessions.</td></tr>';
