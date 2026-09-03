@@ -46,10 +46,27 @@ def mask_secret(secret):
         return "********"
     return secret_str[:3] + "********" + secret_str[-4:]
 
+def _clean_str(val):
+    """
+    Strips whitespace, tabs, newlines, and surrounding quotation marks (' or ").
+    Prevents malformed API keys/headers from quotes or extra spaces in environment variables.
+    """
+    if not val:
+        return ""
+    s = str(val).strip()
+    s = s.strip("'\"").strip()
+    return s
+
 def get_email_config():
     """
-    Retrieves Email settings from DB SystemSetting table or Config fallback.
+    Retrieves Email settings, properly cleaning secrets and preferring explicit
+    environment variables (Render deployment) when set or when DB keys are mismatched.
     """
+    env_provider = _clean_str(os.environ.get('EMAIL_PROVIDER', ''))
+    env_api_key = _clean_str(os.environ.get('EMAIL_API_KEY', ''))
+    env_email_from = _clean_str(os.environ.get('EMAIL_FROM', ''))
+    env_email_mode = _clean_str(os.environ.get('EMAIL_MODE', ''))
+
     try:
         from models import SystemSetting
         
@@ -62,55 +79,61 @@ def get_email_config():
         pass_set = SystemSetting.query.filter_by(key='gmail_app_password').first()
 
         enable_email = (enable_set.value.lower() == 'true') if enable_set and enable_set.value else getattr(Config, 'ENABLE_EMAIL_ALERTS', True)
-        email_mode = mode_set.value.upper() if mode_set and mode_set.value else getattr(Config, 'EMAIL_MODE', 'API').upper()
-        email_provider = provider_set.value.upper() if provider_set and provider_set.value else getattr(Config, 'EMAIL_PROVIDER', 'RESEND').upper()
-        email_api_key = api_key_set.value if api_key_set and api_key_set.value else getattr(Config, 'EMAIL_API_KEY', '')
-        email_from = from_set.value if from_set and from_set.value else getattr(Config, 'EMAIL_FROM', getattr(Config, 'GMAIL_EMAIL', 'onboarding@resend.dev'))
         
-        gmail_email = gmail_set.value if gmail_set and gmail_set.value else getattr(Config, 'GMAIL_EMAIL', '')
-        gmail_app_password = pass_set.value if pass_set and pass_set.value else getattr(Config, 'GMAIL_APP_PASSWORD', '')
+        db_mode = _clean_str(mode_set.value).upper() if mode_set and mode_set.value else ""
+        email_mode = env_email_mode.upper() or db_mode or getattr(Config, 'EMAIL_MODE', 'API').upper()
 
-        if email_mode == 'API':
-            has_credentials = bool(email_api_key and email_from)
+        db_provider = _clean_str(provider_set.value).upper() if provider_set and provider_set.value else ""
+        email_provider = env_provider.upper() or db_provider or getattr(Config, 'EMAIL_PROVIDER', 'RESEND').upper()
+
+        db_api_key = _clean_str(api_key_set.value) if api_key_set and api_key_set.value else ""
+        cfg_api_key = _clean_str(getattr(Config, 'EMAIL_API_KEY', ''))
+
+        # Key selection logic:
+        # 1) If env_api_key is provided in environment, prefer it as explicit Render deployment secret.
+        # 2) If db_api_key is present, verify it matches provider format. If db_api_key starts with 're_' while provider is 'BREVO', it's an old Resend key so use env_api_key / cfg_api_key instead.
+        if env_api_key:
+            email_api_key = env_api_key
+        elif db_api_key:
+            if email_provider == 'BREVO' and db_api_key.startswith('re_'):
+                email_api_key = env_api_key or cfg_api_key
+            else:
+                email_api_key = db_api_key
         else:
-            has_credentials = bool(gmail_email and gmail_app_password)
+            email_api_key = cfg_api_key
 
-        return {
-            'enable_email_alerts': enable_email,
-            'email_mode': email_mode,
-            'email_provider': email_provider,
-            'email_api_key': email_api_key,
-            'email_from': email_from,
-            'gmail_email': gmail_email,
-            'gmail_app_password': gmail_app_password,
-            'smtp_server': getattr(Config, 'SMTP_SERVER', 'smtp.gmail.com'),
-            'smtp_port': getattr(Config, 'SMTP_PORT', 587),
-            'has_credentials': has_credentials
-        }
+        db_from = _clean_str(from_set.value) if from_set and from_set.value else ""
+        email_from = env_email_from or db_from or _clean_str(getattr(Config, 'EMAIL_FROM', getattr(Config, 'GMAIL_EMAIL', 'onboarding@resend.dev')))
+
+        gmail_email = _clean_str(gmail_set.value) if gmail_set and gmail_set.value else _clean_str(getattr(Config, 'GMAIL_EMAIL', ''))
+        gmail_app_password = _clean_str(pass_set.value) if pass_set and pass_set.value else _clean_str(getattr(Config, 'GMAIL_APP_PASSWORD', ''))
+
     except Exception:
-        email_mode = getattr(Config, 'EMAIL_MODE', 'API').upper()
-        email_api_key = getattr(Config, 'EMAIL_API_KEY', '')
-        email_from = getattr(Config, 'EMAIL_FROM', getattr(Config, 'GMAIL_EMAIL', 'onboarding@resend.dev'))
-        gmail_email = getattr(Config, 'GMAIL_EMAIL', '')
-        gmail_app_password = getattr(Config, 'GMAIL_APP_PASSWORD', '')
+        email_mode = env_email_mode.upper() or getattr(Config, 'EMAIL_MODE', 'API').upper()
+        email_provider = env_provider.upper() or getattr(Config, 'EMAIL_PROVIDER', 'RESEND').upper()
+        email_api_key = env_api_key or _clean_str(getattr(Config, 'EMAIL_API_KEY', ''))
+        email_from = env_email_from or _clean_str(getattr(Config, 'EMAIL_FROM', getattr(Config, 'GMAIL_EMAIL', 'onboarding@resend.dev')))
+        gmail_email = _clean_str(getattr(Config, 'GMAIL_EMAIL', ''))
+        gmail_app_password = _clean_str(getattr(Config, 'GMAIL_APP_PASSWORD', ''))
+        enable_email = getattr(Config, 'ENABLE_EMAIL_ALERTS', True)
 
-        if email_mode == 'API':
-            has_credentials = bool(email_api_key and email_from)
-        else:
-            has_credentials = bool(gmail_email and gmail_app_password)
+    if email_mode == 'API':
+        has_credentials = bool(email_api_key and email_from)
+    else:
+        has_credentials = bool(gmail_email and gmail_app_password)
 
-        return {
-            'enable_email_alerts': getattr(Config, 'ENABLE_EMAIL_ALERTS', True),
-            'email_mode': email_mode,
-            'email_provider': getattr(Config, 'EMAIL_PROVIDER', 'RESEND').upper(),
-            'email_api_key': email_api_key,
-            'email_from': email_from,
-            'gmail_email': gmail_email,
-            'gmail_app_password': gmail_app_password,
-            'smtp_server': getattr(Config, 'SMTP_SERVER', 'smtp.gmail.com'),
-            'smtp_port': getattr(Config, 'SMTP_PORT', 587),
-            'has_credentials': has_credentials
-        }
+    return {
+        'enable_email_alerts': enable_email,
+        'email_mode': email_mode,
+        'email_provider': email_provider,
+        'email_api_key': email_api_key,
+        'email_from': email_from,
+        'gmail_email': gmail_email,
+        'gmail_app_password': gmail_app_password,
+        'smtp_server': getattr(Config, 'SMTP_SERVER', 'smtp.gmail.com'),
+        'smtp_port': getattr(Config, 'SMTP_PORT', 587),
+        'has_credentials': has_credentials
+    }
 
 def _record_email_log(session_id, student_id, student_name, roll_no, parent_email, session_title, subject, body, status):
     """
@@ -145,10 +168,42 @@ def _send_via_https_api(to_email, subject, body_text, conf):
     """
     import requests
 
-    provider = conf['email_provider']
-    api_key = conf['email_api_key']
-    email_from = conf['email_from']
+    provider = _clean_str(conf['email_provider']).upper()
+    api_key = _clean_str(conf['email_api_key'])
+    raw_from = _clean_str(conf['email_from'])
     masked_target = mask_email(to_email)
+
+    # Clean sender email address
+    sender_email = raw_from
+    if '<' in raw_from and '>' in raw_from:
+        match = re.search(r'<([^>]+)>', raw_from)
+        if match:
+            sender_email = match.group(1).strip()
+    sender_email = _clean_str(sender_email)
+    if not sender_email or '@' not in sender_email:
+        sender_email = "onboarding@resend.dev"
+
+    # Safe diagnostic logging (NEVER exposes API key)
+    key_exists = bool(api_key)
+    key_len = len(api_key) if api_key else 0
+    from_exists = bool(sender_email)
+
+    key_format_hint = "EMPTY"
+    if api_key:
+        if api_key.startswith("xkeysib-"):
+            key_format_hint = "BREVO_V3 (xkeysib-...)"
+        elif api_key.startswith("re_"):
+            key_format_hint = "RESEND_KEY (re_...)"
+        elif api_key.startswith("SG."):
+            key_format_hint = "SENDGRID_KEY (SG....)"
+        else:
+            key_format_hint = "OTHER_FORMAT"
+
+    logger.info(
+        f"[EMAIL_API_DIAGNOSTIC] Dispatching email | provider={provider} | "
+        f"api_key_exists={key_exists} | api_key_length={key_len} | key_format_hint={key_format_hint} | "
+        f"email_from_exists={from_exists} | target={masked_target}"
+    )
 
     if not api_key:
         err_msg = f"HTTPS Email API key missing for provider {provider}."
@@ -160,8 +215,6 @@ def _send_via_https_api(to_email, subject, body_text, conf):
             'error_message': err_msg
         }
 
-    logger.info(f"[EMAIL_API] Preparing HTTPS POST request for provider={provider} target={masked_target}")
-
     try:
         if provider == 'BREVO':
             url = "https://api.brevo.com/v3/smtp/email"
@@ -171,7 +224,7 @@ def _send_via_https_api(to_email, subject, body_text, conf):
                 "Accept": "application/json"
             }
             payload = {
-                "sender": {"email": email_from, "name": "AI Attendance System"},
+                "sender": {"email": sender_email, "name": "AI Attendance System"},
                 "to": [{"email": to_email}],
                 "subject": subject,
                 "textContent": body_text
@@ -184,7 +237,7 @@ def _send_via_https_api(to_email, subject, body_text, conf):
             }
             payload = {
                 "personalizations": [{"to": [{"email": to_email}]}],
-                "from": {"email": email_from, "name": "AI Attendance System"},
+                "from": {"email": sender_email, "name": "AI Attendance System"},
                 "subject": subject,
                 "content": [{"type": "text/plain", "value": body_text}]
             }
@@ -196,13 +249,26 @@ def _send_via_https_api(to_email, subject, body_text, conf):
                 "Content-Type": "application/json"
             }
             payload = {
-                "from": email_from if ("@" in email_from) else "onboarding@resend.dev",
+                "from": sender_email if ("@" in sender_email) else "onboarding@resend.dev",
                 "to": [to_email],
                 "subject": subject,
                 "text": body_text
             }
 
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response = requests.post(url, headers=headers, json=payload, timeout=12)
+
+        try:
+            err_json = response.json()
+            err_detail = err_json.get('message') or err_json.get('error') or response.text[:150]
+        except Exception:
+            err_detail = response.text[:150]
+
+        sanitized_err_detail = _clean_str(err_detail).replace('\n', ' ')
+
+        logger.info(
+            f"[EMAIL_API_DIAGNOSTIC] Response from {provider} | http_status={response.status_code} | "
+            f"response_msg={sanitized_err_detail[:150]}"
+        )
 
         if response.status_code in (200, 201, 202):
             msg = f"Email sent successfully via {provider} HTTPS API (HTTP {response.status_code})."
@@ -215,12 +281,7 @@ def _send_via_https_api(to_email, subject, body_text, conf):
                 'response_text': response.text[:200]
             }
         else:
-            try:
-                err_json = response.json()
-                err_detail = err_json.get('message') or err_json.get('error') or response.text[:150]
-            except Exception:
-                err_detail = response.text[:150]
-            err_msg = f"{provider} API returned HTTP {response.status_code}: {err_detail}"
+            err_msg = f"{provider} API returned HTTP {response.status_code}: {sanitized_err_detail}"
             logger.error(f"[EMAIL_API] Failed for {masked_target}: {err_msg}")
             return False, err_msg, {
                 'http_status': response.status_code,
